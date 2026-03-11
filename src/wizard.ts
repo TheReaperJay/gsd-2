@@ -1,13 +1,25 @@
 import { createInterface } from 'readline'
 import type { AuthStorage } from '@mariozechner/pi-coding-agent'
 
+// ─── Colors ──────────────────────────────────────────────────────────────────
+
+const cyan   = '\x1b[36m'
+const green  = '\x1b[32m'
+const yellow = '\x1b[33m'
+const dim    = '\x1b[2m'
+const bold   = '\x1b[1m'
+const reset  = '\x1b[0m'
+
+// ─── Masked input ─────────────────────────────────────────────────────────────
+
 /**
- * Internal helper: prompt for masked input using raw mode stdin.
+ * Prompt for masked input using raw mode stdin.
  * Handles backspace, Ctrl+C, and Enter.
  * Falls back to plain readline if setRawMode is unavailable (e.g. some SSH contexts).
  */
-async function promptMasked(question: string): Promise<string> {
+async function promptMasked(label: string, hint: string): Promise<string> {
   return new Promise((resolve) => {
+    const question = `  ${cyan}›${reset} ${label} ${dim}${hint}${reset}\n  `
     try {
       process.stdout.write(question)
       process.stdin.setRawMode(true)
@@ -22,18 +34,16 @@ async function promptMasked(question: string): Promise<string> {
           process.stdout.write('\n')
           resolve(value)
         } else if (ch === '\u0003') {
-          // Ctrl+C — restore raw mode and exit cleanly
           process.stdin.setRawMode(false)
           process.stdout.write('\n')
           process.exit(0)
         } else if (ch === '\u007f') {
-          // Backspace
           if (value.length > 0) {
             value = value.slice(0, -1)
           }
           process.stdout.clearLine(0)
           process.stdout.cursorTo(0)
-          process.stdout.write(question + '*'.repeat(value.length))
+          process.stdout.write('  ' + '*'.repeat(value.length))
         } else {
           value += ch
           process.stdout.write('*')
@@ -41,16 +51,17 @@ async function promptMasked(question: string): Promise<string> {
       }
       process.stdin.on('data', handler)
     } catch (_err) {
-      // setRawMode not available — fall back to plain readline
-      process.stdout.write(' (note: input will be visible)\n')
+      process.stdout.write(` ${dim}(input will be visible)${reset}\n  `)
       const rl = createInterface({ input: process.stdin, output: process.stdout })
-      rl.question(question, (answer) => {
+      rl.question('', (answer) => {
         rl.close()
         resolve(answer)
       })
     }
   })
 }
+
+// ─── Env hydration ────────────────────────────────────────────────────────────
 
 /**
  * Hydrate process.env from stored auth.json credentials for optional tool keys.
@@ -59,10 +70,10 @@ async function promptMasked(question: string): Promise<string> {
  */
 export function loadStoredEnvKeys(authStorage: AuthStorage): void {
   const providers: Array<[string, string]> = [
-    ['brave', 'BRAVE_API_KEY'],
+    ['brave',         'BRAVE_API_KEY'],
     ['brave_answers', 'BRAVE_ANSWERS_KEY'],
-    ['context7', 'CONTEXT7_API_KEY'],
-    ['jina', 'JINA_API_KEY'],
+    ['context7',      'CONTEXT7_API_KEY'],
+    ['jina',          'JINA_API_KEY'],
   ]
   for (const [provider, envVar] of providers) {
     if (!process.env[envVar]) {
@@ -74,80 +85,111 @@ export function loadStoredEnvKeys(authStorage: AuthStorage): void {
   }
 }
 
+// ─── Wizard ───────────────────────────────────────────────────────────────────
+
+interface ApiKeyConfig {
+  provider: string
+  envVar: string
+  label: string
+  hint: string
+  description: string
+}
+
+const API_KEYS: ApiKeyConfig[] = [
+  {
+    provider:    'brave',
+    envVar:      'BRAVE_API_KEY',
+    label:       'Brave Search',
+    hint:        '(search-the-web + search_and_read tools)',
+    description: 'Web search and page extraction',
+  },
+  {
+    provider:    'brave_answers',
+    envVar:      'BRAVE_ANSWERS_KEY',
+    label:       'Brave Answers',
+    hint:        '(AI-summarised search answers)',
+    description: 'AI-generated search summaries',
+  },
+  {
+    provider:    'context7',
+    envVar:      'CONTEXT7_API_KEY',
+    label:       'Context7',
+    hint:        '(up-to-date library docs)',
+    description: 'Live library and framework documentation',
+  },
+  {
+    provider:    'jina',
+    envVar:      'JINA_API_KEY',
+    label:       'Jina AI',
+    hint:        '(clean page extraction)',
+    description: 'High-quality web page content extraction',
+  },
+]
+
 /**
  * Check for missing optional tool API keys and prompt for them if on a TTY.
  *
  * Anthropic auth is handled by pi's own OAuth/API key flow — we don't touch it.
  * This wizard only collects Brave Search, Context7, and Jina keys which are needed
  * for web search and documentation tools.
- *
- * Behavior:
- * - All optional keys present (env or auth.json): return silently
- * - Non-TTY with missing optional keys: warn to stderr and continue (non-fatal)
- * - TTY with missing optional keys: interactive prompts, skip on empty input
  */
 export async function runWizardIfNeeded(authStorage: AuthStorage): Promise<void> {
-  const needsBrave = !authStorage.has('brave') && !process.env.BRAVE_API_KEY
-  const needsBraveAnswers = !authStorage.has('brave_answers') && !process.env.BRAVE_ANSWERS_KEY
-  const needsContext7 = !authStorage.has('context7') && !process.env.CONTEXT7_API_KEY
-  const needsJina = !authStorage.has('jina') && !process.env.JINA_API_KEY
+  const missing = API_KEYS.filter(
+    k => !authStorage.has(k.provider) && !process.env[k.envVar]
+  )
 
-  if (!needsBrave && !needsBraveAnswers && !needsContext7 && !needsJina) {
-    return
-  }
+  if (missing.length === 0) return
 
-  const missing = [
-    needsBrave && 'Brave Search',
-    needsBraveAnswers && 'Brave Answers',
-    needsContext7 && 'Context7',
-    needsJina && 'Jina',
-  ]
-    .filter(Boolean)
-    .join(', ')
-
-  // Non-TTY: just warn and let the session start without them
+  // Non-TTY: warn and continue
   if (!process.stdin.isTTY) {
+    const names = missing.map(k => k.label).join(', ')
     process.stderr.write(
-      `[gsd] Warning: optional tool API keys not configured (${missing}). Some tools may not work.\n`,
+      `[gsd] Warning: optional tool API keys not configured (${names}). Some tools may not work.\n`
     )
     return
   }
 
-  // TTY: interactive prompts for each missing key
-  process.stdout.write(`\n[gsd] Some optional tool API keys are not configured: ${missing}\n`)
-  process.stdout.write('[gsd] Press Enter to skip any key you want to set up later.\n\n')
+  // ── Header ──────────────────────────────────────────────────────────────────
+  process.stdout.write(
+    `\n  ${bold}Optional API keys${reset}\n` +
+    `  ${dim}─────────────────────────────────────────────${reset}\n` +
+    `  These unlock additional tools. All optional — press ${cyan}Enter${reset} to skip any.\n\n`
+  )
 
-  if (needsBrave) {
-    const key = await promptMasked('Brave Search API key (optional, for web search + LLM context): ')
-    if (key) {
-      authStorage.set('brave', { type: 'api_key', key })
-      process.env.BRAVE_API_KEY = key
+  // Show what each key unlocks
+  for (const key of missing) {
+    process.stdout.write(`  ${dim}•${reset} ${cyan}${key.label}${reset} ${dim}— ${key.description}${reset}\n`)
+  }
+  process.stdout.write('\n')
+
+  // ── Prompts ─────────────────────────────────────────────────────────────────
+  let savedCount = 0
+
+  for (const key of missing) {
+    const value = await promptMasked(key.label, key.hint)
+    if (value.trim()) {
+      authStorage.set(key.provider, { type: 'api_key', key: value.trim() })
+      process.env[key.envVar] = value.trim()
+      process.stdout.write(`  ${green}✓${reset} ${key.label} saved\n\n`)
+      savedCount++
+    } else {
+      process.stdout.write(`  ${dim}↷  ${key.label} skipped${reset}\n\n`)
     }
   }
 
-  if (needsBraveAnswers) {
-    const key = await promptMasked('Brave Answers API key (optional, for AI-generated answers): ')
-    if (key) {
-      authStorage.set('brave_answers', { type: 'api_key', key })
-      process.env.BRAVE_ANSWERS_KEY = key
-    }
+  // ── Footer ───────────────────────────────────────────────────────────────────
+  process.stdout.write(
+    `  ${dim}─────────────────────────────────────────────${reset}\n`
+  )
+  if (savedCount > 0) {
+    process.stdout.write(
+      `  ${green}✓${reset} ${savedCount} key${savedCount > 1 ? 's' : ''} saved to ${dim}~/.gsd/agent/auth.json${reset}\n` +
+      `  ${dim}Run ${reset}${cyan}/login${reset}${dim} inside gsd to connect your LLM provider.${reset}\n\n`
+    )
+  } else {
+    process.stdout.write(
+      `  ${yellow}↷${reset}  All keys skipped — you can add them later via ${dim}~/.gsd/agent/auth.json${reset}\n` +
+      `  ${dim}Run ${reset}${cyan}/login${reset}${dim} inside gsd to connect your LLM provider.${reset}\n\n`
+    )
   }
-
-  if (needsContext7) {
-    const key = await promptMasked('Context7 API key (optional): ')
-    if (key) {
-      authStorage.set('context7', { type: 'api_key', key })
-      process.env.CONTEXT7_API_KEY = key
-    }
-  }
-
-  if (needsJina) {
-    const key = await promptMasked('Jina AI API key (optional): ')
-    if (key) {
-      authStorage.set('jina', { type: 'api_key', key })
-      process.env.JINA_API_KEY = key
-    }
-  }
-
-  process.stdout.write('[gsd] Keys saved. Starting...\n\n')
 }
