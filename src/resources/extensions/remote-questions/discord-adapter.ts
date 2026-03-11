@@ -6,6 +6,7 @@ import type { ChannelAdapter, RemotePrompt, RemoteDispatchResult, RemoteAnswer, 
 import { formatForDiscord, parseDiscordResponse } from "./format.js";
 
 const DISCORD_API = "https://discord.com/api/v10";
+const PER_REQUEST_TIMEOUT_MS = 15_000;
 const NUMBER_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
 
 export class DiscordAdapter implements ChannelAdapter {
@@ -108,6 +109,7 @@ export class DiscordAdapter implements ChannelAdapter {
       init.body = JSON.stringify(body);
     }
 
+    init.signal = AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS);
     const response = await fetch(`${DISCORD_API}${path}`, init);
     if (response.status === 204) return {};
     if (!response.ok) {

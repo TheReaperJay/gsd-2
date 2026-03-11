@@ -6,6 +6,7 @@ import type { ChannelAdapter, RemotePrompt, RemoteDispatchResult, RemoteAnswer, 
 import { formatForSlack, parseSlackReply } from "./format.js";
 
 const SLACK_API = "https://slack.com/api";
+const PER_REQUEST_TIMEOUT_MS = 15_000;
 
 export class SlackAdapter implements ChannelAdapter {
   readonly name = "slack" as const;
@@ -72,7 +73,7 @@ export class SlackAdapter implements ChannelAdapter {
     let response: Response;
     if (isGet) {
       const qs = new URLSearchParams(Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)]))).toString();
-      response = await fetch(`${url}?${qs}`, { method: "GET", headers: { Authorization: `Bearer ${this.token}` } });
+      response = await fetch(`${url}?${qs}`, { method: "GET", headers: { Authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS) });
     } else {
       response = await fetch(url, {
         method: "POST",
@@ -81,6 +82,7 @@ export class SlackAdapter implements ChannelAdapter {
           "Content-Type": "application/json; charset=utf-8",
         },
         body: JSON.stringify(params),
+        signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
       });
     }
 
