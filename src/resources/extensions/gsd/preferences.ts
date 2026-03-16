@@ -1,9 +1,11 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { getAgentDir } from "@gsd/pi-coding-agent";
 import type { GitPreferences } from "./git-service.js";
 import type { PostUnitHookConfig, PreDispatchHookConfig, BudgetEnforcementMode, NotificationPreferences, TokenProfile, InlineLevel, PhaseSkipPreferences } from "./types.js";
+import type { DynamicRoutingConfig } from "./model-router.js";
+import { defaultRoutingConfig } from "./model-router.js";
 import { VALID_BRANCH_NAME } from "./git-service.js";
 
 const GLOBAL_PREFERENCES_PATH = join(homedir(), ".gsd", "preferences.md");
@@ -36,8 +38,10 @@ const KNOWN_PREFERENCE_KEYS = new Set<string>([
   "git",
   "post_unit_hooks",
   "pre_dispatch_hooks",
+  "dynamic_routing",
   "token_profile",
   "phases",
+  "auto_visualize",
 ]);
 
 export interface GSDSkillRule {
@@ -128,8 +132,10 @@ export interface GSDPreferences {
   git?: GitPreferences;
   post_unit_hooks?: PostUnitHookConfig[];
   pre_dispatch_hooks?: PreDispatchHookConfig[];
+  dynamic_routing?: DynamicRoutingConfig;
   token_profile?: TokenProfile;
   phases?: PhaseSkipPreferences;
+  auto_visualize?: boolean;
 }
 
 export interface LoadedGSDPreferences {
@@ -674,6 +680,20 @@ export function resolveModelWithFallbacksForUnit(unitType: string): ResolvedMode
   };
 }
 
+/**
+ * Resolve the dynamic routing configuration from effective preferences.
+ * Returns the merged config with defaults applied.
+ */
+export function resolveDynamicRoutingConfig(): DynamicRoutingConfig {
+  const prefs = loadEffectiveGSDPreferences();
+  const configured = prefs?.preferences.dynamic_routing;
+  if (!configured) return defaultRoutingConfig();
+  return {
+    ...defaultRoutingConfig(),
+    ...configured,
+  };
+}
+
 export function resolveAutoSupervisorConfig(): AutoSupervisorConfig {
   const prefs = loadEffectiveGSDPreferences();
   const configured = prefs?.preferences.auto_supervisor ?? {};
@@ -780,6 +800,9 @@ function mergePreferences(base: GSDPreferences, override: GSDPreferences): GSDPr
       : undefined,
     post_unit_hooks: mergePostUnitHooks(base.post_unit_hooks, override.post_unit_hooks),
     pre_dispatch_hooks: mergePreDispatchHooks(base.pre_dispatch_hooks, override.pre_dispatch_hooks),
+    dynamic_routing: (base.dynamic_routing || override.dynamic_routing)
+      ? { ...(base.dynamic_routing ?? {}), ...(override.dynamic_routing ?? {}) } as DynamicRoutingConfig
+      : undefined,
     token_profile: override.token_profile ?? base.token_profile,
     phases: (base.phases || override.phases)
       ? { ...(base.phases ?? {}), ...(override.phases ?? {}) }
@@ -1100,6 +1123,56 @@ export function validatePreferences(preferences: GSDPreferences): {
     }
   }
 
+  // ─── Dynamic Routing ─────────────────────────────────────────────────
+  if (preferences.dynamic_routing !== undefined) {
+    if (typeof preferences.dynamic_routing === "object" && preferences.dynamic_routing !== null) {
+      const dr = preferences.dynamic_routing as unknown as Record<string, unknown>;
+      const validDr: Partial<DynamicRoutingConfig> = {};
+
+      if (dr.enabled !== undefined) {
+        if (typeof dr.enabled === "boolean") validDr.enabled = dr.enabled;
+        else errors.push("dynamic_routing.enabled must be a boolean");
+      }
+      if (dr.escalate_on_failure !== undefined) {
+        if (typeof dr.escalate_on_failure === "boolean") validDr.escalate_on_failure = dr.escalate_on_failure;
+        else errors.push("dynamic_routing.escalate_on_failure must be a boolean");
+      }
+      if (dr.budget_pressure !== undefined) {
+        if (typeof dr.budget_pressure === "boolean") validDr.budget_pressure = dr.budget_pressure;
+        else errors.push("dynamic_routing.budget_pressure must be a boolean");
+      }
+      if (dr.cross_provider !== undefined) {
+        if (typeof dr.cross_provider === "boolean") validDr.cross_provider = dr.cross_provider;
+        else errors.push("dynamic_routing.cross_provider must be a boolean");
+      }
+      if (dr.hooks !== undefined) {
+        if (typeof dr.hooks === "boolean") validDr.hooks = dr.hooks;
+        else errors.push("dynamic_routing.hooks must be a boolean");
+      }
+      if (dr.tier_models !== undefined) {
+        if (typeof dr.tier_models === "object" && dr.tier_models !== null) {
+          const tm = dr.tier_models as Record<string, unknown>;
+          const validTm: Record<string, string> = {};
+          for (const tier of ["light", "standard", "heavy"]) {
+            if (tm[tier] !== undefined) {
+              if (typeof tm[tier] === "string") validTm[tier] = tm[tier] as string;
+              else errors.push(`dynamic_routing.tier_models.${tier} must be a string`);
+            }
+          }
+          if (Object.keys(validTm).length > 0) validDr.tier_models = validTm as DynamicRoutingConfig["tier_models"];
+        } else {
+          errors.push("dynamic_routing.tier_models must be an object");
+        }
+      }
+
+      if (Object.keys(validDr).length > 0) {
+        validated.dynamic_routing = validDr as unknown as DynamicRoutingConfig;
+      }
+    } else {
+      errors.push("dynamic_routing must be an object");
+    }
+  }
+
   // ─── Git Preferences ───────────────────────────────────────────────────
   if (preferences.git && typeof preferences.git === "object") {
     const git: Record<string, unknown> = {};
@@ -1251,4 +1324,62 @@ export function resolvePreDispatchHooks(): PreDispatchHookConfig[] {
   const prefs = loadEffectiveGSDPreferences();
   return (prefs?.preferences.pre_dispatch_hooks ?? [])
     .filter(h => h.enabled !== false);
+}
+
+/**
+ * Validate a model ID string.
+ * Returns true if the ID looks like a valid model identifier.
+ */
+export function validateModelId(modelId: string): boolean {
+  if (!modelId || typeof modelId !== "string") return false;
+  const trimmed = modelId.trim();
+  if (trimmed.length === 0 || trimmed.length > 256) return false;
+  // Allow alphanumeric, hyphens, underscores, dots, slashes, colons
+  return /^[a-zA-Z0-9\-_./:]+$/.test(trimmed);
+}
+
+/**
+ * Update the models section of the global GSD preferences file.
+ * Performs a safe read-modify-write: reads current content, updates the models
+ * YAML block, and writes back. Creates the file if it doesn't exist.
+ */
+export function updatePreferencesModels(models: GSDModelConfigV2): void {
+  const prefsPath = getGlobalGSDPreferencesPath();
+
+  let content = "";
+  if (existsSync(prefsPath)) {
+    content = readFileSync(prefsPath, "utf-8");
+  }
+
+  // Build the new models block
+  const lines: string[] = ["models:"];
+  for (const [phase, value] of Object.entries(models)) {
+    if (typeof value === "string") {
+      lines.push(`  ${phase}: ${value}`);
+    } else if (value && typeof value === "object") {
+      const config = value as GSDPhaseModelConfig;
+      lines.push(`  ${phase}:`);
+      lines.push(`    model: ${config.model}`);
+      if (config.provider) {
+        lines.push(`    provider: ${config.provider}`);
+      }
+      if (config.fallbacks && config.fallbacks.length > 0) {
+        lines.push(`    fallbacks:`);
+        for (const fb of config.fallbacks) {
+          lines.push(`      - ${fb}`);
+        }
+      }
+    }
+  }
+  const modelsBlock = lines.join("\n");
+
+  // Replace existing models block or append
+  const modelsRegex = /^models:[\s\S]*?(?=\n[a-z_]|\n*$)/m;
+  if (modelsRegex.test(content)) {
+    content = content.replace(modelsRegex, modelsBlock);
+  } else {
+    content = content.trimEnd() + "\n\n" + modelsBlock + "\n";
+  }
+
+  writeFileSync(prefsPath, content, "utf-8");
 }
