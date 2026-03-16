@@ -35,6 +35,7 @@ import { nativeBatchParseGsdFiles, type BatchParsedFile } from './native-parser-
 import { isDbAvailable, _getAdapter } from './gsd-db.js';
 
 import { join, resolve } from 'path';
+import { debugCount, debugTime } from './debug-logger.js';
 
 // ─── Query Functions ───────────────────────────────────────────────────────
 
@@ -117,7 +118,10 @@ export async function deriveState(basePath: string): Promise<GSDState> {
     return _stateCache.result;
   }
 
+  const stopTimer = debugTime("derive-state-impl");
   const result = await _deriveStateImpl(basePath);
+  stopTimer({ phase: result.phase, milestone: result.activeMilestone?.id });
+  debugCount("deriveStateCalls");
   _stateCache = { basePath, result, timestamp: Date.now() };
   return result;
 }

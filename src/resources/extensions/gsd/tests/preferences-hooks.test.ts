@@ -1,5 +1,4 @@
 // GSD Extension — Hook Preferences Parsing Tests (Post-Unit + Pre-Dispatch)
-// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import { createTestContext } from "./test-helpers.ts";
 import type { PreDispatchHookConfig } from "../types.ts";

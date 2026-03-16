@@ -1,5 +1,4 @@
 // GSD Extension — Hook Engine Tests (Post-Unit, Pre-Dispatch, State Persistence)
-// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";

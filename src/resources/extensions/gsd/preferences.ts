@@ -484,9 +484,14 @@ function loadPreferencesFile(path: string, scope: "global" | "project"): LoadedG
 
 /** @internal Exported for testing only */
 export function parsePreferencesMarkdown(content: string): GSDPreferences | null {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return null;
-  return parseFrontmatterBlock(match[1]);
+  // Use indexOf instead of [\s\S]*? regex to avoid backtracking (#468)
+  const startMarker = content.startsWith('---\r\n') ? '---\r\n' : '---\n';
+  if (!content.startsWith(startMarker)) return null;
+  const searchStart = startMarker.length;
+  const endIdx = content.indexOf('\n---', searchStart);
+  if (endIdx === -1) return null;
+  const block = content.slice(searchStart, endIdx);
+  return parseFrontmatterBlock(block.replace(/\r/g, ''));
 }
 
 function parseFrontmatterBlock(frontmatter: string): GSDPreferences {

@@ -1,6 +1,5 @@
 // GSD Extension — Desktop Notification Helper
 // Cross-platform desktop notifications for auto-mode events.
-// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import { execFileSync } from "node:child_process";
 import type { NotificationPreferences } from "./types.js";

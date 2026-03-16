@@ -1,6 +1,5 @@
 // GSD Extension — Session/Milestone Export
 // Generate shareable reports of milestone work in JSON or markdown format.
-// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import type { ExtensionCommandContext } from "@gsd/pi-coding-agent";
 import { writeFileSync, mkdirSync } from "node:fs";

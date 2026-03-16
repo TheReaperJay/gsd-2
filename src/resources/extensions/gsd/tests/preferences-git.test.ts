@@ -1,5 +1,4 @@
 // GSD Git Preferences Tests — validates git.isolation and git.merge_to_main handling
-// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import { createTestContext } from "./test-helpers.ts";
 import { validatePreferences } from "../preferences.ts";

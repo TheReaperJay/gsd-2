@@ -1,6 +1,5 @@
 // GSD Extension — Undo Last Unit
 // Rollback the most recent completed unit: revert git, remove state, uncheck plans.
-// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import type { ExtensionCommandContext, ExtensionAPI } from "@gsd/pi-coding-agent";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";

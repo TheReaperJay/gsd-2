@@ -1,5 +1,4 @@
 // GSD Dispatch Guard — prevents out-of-order slice dispatch
-// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import { readFileSync } from "node:fs";
 import { readdirSync } from "node:fs";

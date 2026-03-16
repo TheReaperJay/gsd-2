@@ -1,6 +1,5 @@
 // GSD Extension — Session History View
 // Human-readable display of past auto-mode unit executions.
-// Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 
 import type { ExtensionCommandContext } from "@gsd/pi-coding-agent";
 import {
