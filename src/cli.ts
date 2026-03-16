@@ -19,13 +19,13 @@ import { getPiDefaultModelAndProvider, migratePiCredentials } from './pi-migrati
 import { shouldRunOnboarding, runOnboarding } from './onboarding.js'
 import chalk from 'chalk'
 import { checkForUpdates } from './update-check.js'
-import { printHelp } from './help-text.js'
+import { printHelp, printSubcommandHelp } from './help-text.js'
 
 // ---------------------------------------------------------------------------
 // Minimal CLI arg parser — detects print/subagent mode flags
 // ---------------------------------------------------------------------------
 interface CliFlags {
-  mode?: 'text' | 'json' | 'rpc'
+  mode?: 'text' | 'json' | 'rpc' | 'mcp'
   print?: boolean
   continue?: boolean
   noSession?: boolean
@@ -59,7 +59,7 @@ function parseCliArgs(argv: string[]): CliFlags {
     const arg = args[i]
     if (arg === '--mode' && i + 1 < args.length) {
       const m = args[++i]
-      if (m === 'text' || m === 'json' || m === 'rpc') flags.mode = m
+      if (m === 'text' || m === 'json' || m === 'rpc' || m === 'mcp') flags.mode = m
     } else if (arg === '--print' || arg === '-p') {
       flags.print = true
     } else if (arg === '--continue' || arg === '-c') {
@@ -91,6 +91,14 @@ function parseCliArgs(argv: string[]): CliFlags {
 
 const cliFlags = parseCliArgs(process.argv)
 const isPrintMode = cliFlags.print || cliFlags.mode !== undefined
+
+// `gsd <subcommand> --help` — show subcommand-specific help
+const subcommand = cliFlags.messages[0]
+if (subcommand && process.argv.includes('--help')) {
+  if (printSubcommandHelp(subcommand, process.env.GSD_VERSION || '0.0.0')) {
+    process.exit(0)
+  }
+}
 
 // `gsd config` — replay the setup wizard and exit
 if (cliFlags.messages[0] === 'config') {
@@ -292,8 +300,18 @@ if (isPrintMode) {
     process.exit(0)
   }
 
+  if (mode === 'mcp') {
+    const { startMcpServer } = await import('./mcp-server.js')
+    await startMcpServer({
+      tools: session.agent.state.tools ?? [],
+      version: process.env.GSD_VERSION || '0.0.0',
+    })
+    // MCP server runs until the transport closes; keep alive
+    await new Promise(() => {})
+  }
+
   await runPrintMode(session, {
-    mode,
+    mode: mode as 'text' | 'json',
     messages: cliFlags.messages,
   })
   process.exit(0)
@@ -403,6 +421,7 @@ if (!process.stdin.isTTY) {
   process.stderr.write('[gsd] Non-interactive alternatives:\n')
   process.stderr.write('[gsd]   gsd --print "your message"     Single-shot prompt\n')
   process.stderr.write('[gsd]   gsd --mode rpc                 JSON-RPC over stdin/stdout\n')
+  process.stderr.write('[gsd]   gsd --mode mcp                 MCP server over stdin/stdout\n')
   process.stderr.write('[gsd]   gsd --mode text "message"      Text output mode\n')
   process.exit(1)
 }
