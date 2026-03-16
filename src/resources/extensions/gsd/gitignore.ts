@@ -16,6 +16,7 @@ import { nativeRmCached } from "./native-git-bridge.js";
  */
 const GSD_RUNTIME_PATTERNS = [
   ".gsd/activity/",
+  ".gsd/forensics/",
   ".gsd/runtime/",
   ".gsd/worktrees/",
   ".gsd/auto.lock",

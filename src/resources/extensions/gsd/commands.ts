@@ -69,13 +69,13 @@ function projectRoot(): string {
 
 export function registerGSDCommand(pi: ExtensionAPI): void {
   pi.registerCommand("gsd", {
-    description: "GSD — Get Shit Done: /gsd help|next|auto|stop|pause|status|visualize|queue|quick|capture|triage|history|undo|skip|export|cleanup|mode|prefs|config|hooks|run-hook|skill-health|doctor|migrate|remote|steer|knowledge",
+    description: "GSD — Get Shit Done: /gsd help|next|auto|stop|pause|status|visualize|queue|quick|capture|triage|history|undo|skip|export|cleanup|mode|prefs|config|hooks|run-hook|skill-health|doctor|forensics|migrate|remote|steer|knowledge",
     getArgumentCompletions: (prefix: string) => {
       const subcommands = [
         "help", "next", "auto", "stop", "pause", "status", "visualize", "queue", "quick", "discuss",
         "capture", "triage",
         "history", "undo", "skip", "export", "cleanup", "mode", "prefs",
-        "config", "hooks", "run-hook", "skill-health", "doctor", "migrate", "remote", "steer", "inspect", "knowledge",
+        "config", "hooks", "run-hook", "skill-health", "doctor", "forensics", "migrate", "remote", "steer", "inspect", "knowledge",
       ];
       const parts = prefix.trim().split(/\s+/);
 
@@ -202,6 +202,12 @@ export function registerGSDCommand(pi: ExtensionAPI): void {
 
       if (trimmed === "doctor" || trimmed.startsWith("doctor ")) {
         await handleDoctor(trimmed.replace(/^doctor\s*/, "").trim(), ctx, pi);
+        return;
+      }
+
+      if (trimmed === "forensics" || trimmed.startsWith("forensics ")) {
+        const { handleForensics } = await import("./forensics.js");
+        await handleForensics(trimmed.replace(/^forensics\s*/, "").trim(), ctx, pi);
         return;
       }
 
