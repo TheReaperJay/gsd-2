@@ -6,6 +6,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-03-15
+
+### Added
+- `/gsd steer` command — hard-steer plan documents during execution without stopping the pipeline
+- Native git operations via libgit2 — ~70 fewer process spawns per dispatch cycle
+- Native performance optimizations for `deriveState`, JSONL parsing, and path resolution
+- Default model upgraded to Opus 4.6 with 1M context variant
+- PR template and bug report issue template
+
+### Fixed
+- Auto-mode continues after guided milestone planning instead of stalling at "Milestone planned"
+- Git commands no longer fail when repo path contains spaces
+- Arrow key cursor updates and Shift+Enter newline insertion in TUI
+- Tool API keys loaded from `auth.json` at session startup
+- TypeScript errors resolved across extension, test, and async-jobs files
+
+### Changed
+- Hot-path lookup caching and error resilience optimizations
+- Extension type-checking added to CI pipeline
+
 ## [2.15.1] - 2026-03-15
 
 ### Fixed
@@ -702,7 +722,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.15.1...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.16.0...HEAD
+[2.16.0]: https://github.com/gsd-build/gsd-2/compare/v2.15.1...v2.16.0
 [2.15.1]: https://github.com/gsd-build/gsd-2/releases/tag/v2.15.1
 [2.15.0]: https://github.com/gsd-build/gsd-2/compare/v2.14.4...v2.15.0
 [2.14.4]: https://github.com/gsd-build/gsd-2/compare/v2.14.3...v2.14.4
