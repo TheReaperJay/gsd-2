@@ -39,6 +39,8 @@ export interface UnitMetrics {
   toolCalls: number;
   assistantMessages: number;
   userMessages: number;
+  promptCharCount?: number;
+  baselineCharCount?: number;
   tier?: string;           // complexity tier (light/standard/heavy) if dynamic routing active
   modelDowngraded?: boolean; // true if dynamic routing used a cheaper model
 }
@@ -106,7 +108,7 @@ export function snapshotUnitMetrics(
   unitId: string,
   startedAt: number,
   model: string,
-  extras?: { tier?: string; modelDowngraded?: boolean },
+  opts?: { promptCharCount?: number; baselineCharCount?: number; tier?: string; modelDowngraded?: boolean },
 ): UnitMetrics | null {
   if (!ledger) return null;
 
@@ -159,8 +161,10 @@ export function snapshotUnitMetrics(
     toolCalls,
     assistantMessages,
     userMessages,
-    ...(extras?.tier ? { tier: extras.tier } : {}),
-    ...(extras?.modelDowngraded !== undefined ? { modelDowngraded: extras.modelDowngraded } : {}),
+    ...(opts?.promptCharCount != null ? { promptCharCount: opts.promptCharCount } : {}),
+    ...(opts?.baselineCharCount != null ? { baselineCharCount: opts.baselineCharCount } : {}),
+    ...(opts?.tier ? { tier: opts.tier } : {}),
+    ...(opts?.modelDowngraded !== undefined ? { modelDowngraded: opts.modelDowngraded } : {}),
   };
 
   ledger.units.push(unit);

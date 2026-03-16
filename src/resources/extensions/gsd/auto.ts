@@ -133,6 +133,7 @@ import {
   deregisterSigtermHandler as _deregisterSigtermHandler,
   detectWorkingTreeActivity,
 } from "./auto-supervisor.js";
+import { isDbAvailable } from "./gsd-db.js";
 import { hasPendingCaptures, loadPendingCaptures, countPendingCaptures } from "./captures.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -261,6 +262,10 @@ let idleWatchdogHandle: ReturnType<typeof setInterval> | null = null;
  *  an unhandled error kills the dispatch chain. */
 let dispatchGapHandle: ReturnType<typeof setTimeout> | null = null;
 const DISPATCH_GAP_TIMEOUT_MS = 5_000; // 5 seconds
+
+/** Prompt character measurement for token savings analysis (R051). */
+let lastPromptCharCount: number | undefined;
+let lastBaselineCharCount: number | undefined;
 
 /** SIGTERM handler registered while auto-mode is active — cleared on stop/pause. */
 let _sigtermHandler: (() => void) | null = null;
@@ -499,6 +504,14 @@ export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI): Promi
         "warning",
       );
     }
+  }
+
+  // ── DB cleanup: close the SQLite connection ──
+  if (isDbAvailable()) {
+    try {
+      const { closeDatabase } = await import("./gsd-db.js");
+      closeDatabase();
+    } catch { /* non-fatal */ }
   }
 
   // Always restore cwd to project root on stop (#608).
@@ -907,6 +920,33 @@ export async function startAuto(
     }
   }
 
+  // ── DB lifecycle: auto-migrate or open existing database ──
+  const gsdDbPath = join(basePath, ".gsd", "gsd.db");
+  const gsdDirPath = join(basePath, ".gsd");
+  if (existsSync(gsdDirPath) && !existsSync(gsdDbPath)) {
+    const hasDecisions = existsSync(join(gsdDirPath, "DECISIONS.md"));
+    const hasRequirements = existsSync(join(gsdDirPath, "REQUIREMENTS.md"));
+    const hasMilestones = existsSync(join(gsdDirPath, "milestones"));
+    if (hasDecisions || hasRequirements || hasMilestones) {
+      try {
+        const { openDatabase: openDb } = await import("./gsd-db.js");
+        const { migrateFromMarkdown } = await import("./md-importer.js");
+        openDb(gsdDbPath);
+        migrateFromMarkdown(basePath);
+      } catch (err) {
+        process.stderr.write(`gsd-migrate: auto-migration failed: ${(err as Error).message}\n`);
+      }
+    }
+  }
+  if (existsSync(gsdDbPath) && !isDbAvailable()) {
+    try {
+      const { openDatabase: openDb } = await import("./gsd-db.js");
+      openDb(gsdDbPath);
+    } catch (err) {
+      process.stderr.write(`gsd-db: failed to open existing database: ${(err as Error).message}\n`);
+    }
+  }
+
   // Initialize metrics — loads existing ledger from disk
   initMetrics(base);
 
@@ -1107,6 +1147,16 @@ export async function handleAgentEnd(
     }
   }
 
+  // ── DB dual-write: re-import changed markdown files so next unit's prompts use fresh data ──
+  if (isDbAvailable()) {
+    try {
+      const { migrateFromMarkdown } = await import("./md-importer.js");
+      migrateFromMarkdown(basePath);
+    } catch (err) {
+      process.stderr.write(`gsd-db: re-import failed: ${(err as Error).message}\n`);
+    }
+  }
+
   // ── Post-unit hooks: check if a configured hook should run before normal dispatch ──
   if (currentUnit && !stepMode) {
     const hookUnit = checkPostUnitHooks(currentUnit.type, currentUnit.id, basePath);
@@ -1115,7 +1165,7 @@ export async function handleAgentEnd(
       const hookStartedAt = Date.now();
       if (currentUnit) {
         const modelId = ctx.model?.id ?? "unknown";
-        snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+        snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
         saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
       }
       currentUnit = { type: hookUnit.unitType, id: hookUnit.unitId, startedAt: hookStartedAt };
@@ -1503,6 +1553,8 @@ async function dispatchNextUnit(
   // Parse cache is also cleared — doctor may have re-populated it with
   // stale data between handleAgentEnd and this dispatch call (Path B fix).
   invalidateAllCaches();
+  lastPromptCharCount = undefined;
+  lastBaselineCharCount = undefined;
 
   let state = await deriveState(basePath);
   let mid = state.activeMilestone?.id;
@@ -1609,7 +1661,7 @@ async function dispatchNextUnit(
     // Save final session before stopping
     if (currentUnit) {
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
       saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
     }
     sendDesktopNotification("GSD", "All milestones complete!", "success", "milestone");
@@ -1637,7 +1689,7 @@ async function dispatchNextUnit(
   if (!mid || !midTitle) {
     if (currentUnit) {
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
       saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
     }
     await stopAuto(ctx, pi);
@@ -1652,7 +1704,7 @@ async function dispatchNextUnit(
   if (state.phase === "complete") {
     if (currentUnit) {
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
       saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
     }
     // Clear completed-units.json for the finished milestone so it doesn't grow unbounded.
@@ -1722,7 +1774,7 @@ async function dispatchNextUnit(
   if (state.phase === "blocked") {
     if (currentUnit) {
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
       saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
     }
     await stopAuto(ctx, pi);
@@ -1830,7 +1882,7 @@ async function dispatchNextUnit(
   if (dispatchResult.action === "stop") {
     if (currentUnit) {
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
       saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
     }
     await stopAuto(ctx, pi);
@@ -1940,7 +1992,7 @@ async function dispatchNextUnit(
   if (lifetimeCount > MAX_LIFETIME_DISPATCHES) {
     if (currentUnit) {
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
     }
     saveActivityLog(ctx, basePath, unitType, unitId);
     const expected = diagnoseExpectedArtifact(unitType, unitId, basePath);
@@ -1954,7 +2006,7 @@ async function dispatchNextUnit(
   if (prevCount >= MAX_UNIT_DISPATCHES) {
     if (currentUnit) {
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
     }
     saveActivityLog(ctx, basePath, unitType, unitId);
 
@@ -2112,7 +2164,7 @@ async function dispatchNextUnit(
   // The session still holds the previous unit's data (newSession hasn't fired yet).
   if (currentUnit) {
     const modelId = ctx.model?.id ?? "unknown";
-    snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+    snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
     saveActivityLog(ctx, basePath, currentUnit.type, currentUnit.id);
 
     // Record routing outcome for adaptive learning
@@ -2220,6 +2272,26 @@ async function dispatchNextUnit(
   const repairBlock = buildObservabilityRepairBlock(observabilityIssues);
   if (repairBlock) {
     finalPrompt = `${finalPrompt}${repairBlock}`;
+  }
+
+  // ── Prompt char measurement (R051) ──
+  lastPromptCharCount = finalPrompt.length;
+  lastBaselineCharCount = undefined;
+  if (isDbAvailable()) {
+    try {
+      const { inlineGsdRootFile } = await import("./auto-prompts.js");
+      const [decisionsContent, requirementsContent, projectContent] = await Promise.all([
+        inlineGsdRootFile(basePath, "decisions.md", "Decisions"),
+        inlineGsdRootFile(basePath, "requirements.md", "Requirements"),
+        inlineGsdRootFile(basePath, "project.md", "Project"),
+      ]);
+      lastBaselineCharCount =
+        (decisionsContent?.length ?? 0) +
+        (requirementsContent?.length ?? 0) +
+        (projectContent?.length ?? 0);
+    } catch {
+      // Non-fatal — baseline measurement is best-effort
+    }
   }
 
   // Switch model if preferences specify one for this unit type
@@ -2422,7 +2494,7 @@ async function dispatchNextUnit(
 
     if (currentUnit) {
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
     }
     saveActivityLog(ctx, basePath, unitType, unitId);
 
@@ -2448,7 +2520,7 @@ async function dispatchNextUnit(
         timeoutAt: Date.now(),
       });
       const modelId = ctx.model?.id ?? "unknown";
-      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, currentUnitRouting ?? undefined);
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, { promptCharCount: lastPromptCharCount, baselineCharCount: lastBaselineCharCount, ...(currentUnitRouting ?? {}) });
     }
     saveActivityLog(ctx, basePath, unitType, unitId);
 
