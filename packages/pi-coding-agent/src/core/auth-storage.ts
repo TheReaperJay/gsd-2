@@ -392,6 +392,11 @@ export class AuthStorage {
 			const updated = [...existing, credential];
 			this.data[provider] = updated.length === 1 ? updated[0] : updated;
 			this.persistProviderChange(provider, updated.length === 1 ? updated[0] : updated);
+		} else if (credential.type === "claude-code") {
+			// Claude Code: simple set — only one claude-code credential makes sense.
+			// No token is stored; presence of the credential is the signal.
+			this.data[provider] = credential;
+			this.persistProviderChange(provider, credential);
 		} else {
 			// OAuth: replace any existing OAuth credential, keep API keys
 			const existing = this.getCredentialsForProvider(provider);
