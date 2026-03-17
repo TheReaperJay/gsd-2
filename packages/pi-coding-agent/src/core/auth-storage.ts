@@ -31,7 +31,16 @@ export type OAuthCredential = {
 	type: "oauth";
 } & OAuthCredentials;
 
-export type AuthCredential = ApiKeyCredential | OAuthCredential;
+/**
+ * Credential representing a Claude Code installation.
+ * No token is stored — presence of this credential signals that Claude Code
+ * should be used as the execution provider.
+ */
+export type ClaudeCodeCredential = {
+	type: "claude-code";
+};
+
+export type AuthCredential = ApiKeyCredential | OAuthCredential | ClaudeCodeCredential;
 
 /**
  * On-disk format: each provider maps to a single credential or an array of credentials.
