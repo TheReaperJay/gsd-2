@@ -146,16 +146,20 @@ export class SdkActivityWriter {
     outputTokens: 0,
   };
 
+  private readonly basePath: string;
+  private readonly unitType: string;
+  private readonly unitId: string;
+
   /**
    * @param basePath - Project root (the directory containing .gsd/)
    * @param unitType - GSD unit type (e.g. "execute-task", "plan-slice")
    * @param unitId   - GSD unit ID (e.g. "M001/S01/T01")
    */
-  constructor(
-    private readonly basePath: string,
-    private readonly unitType: string,
-    private readonly unitId: string,
-  ) {}
+  constructor(basePath: string, unitType: string, unitId: string) {
+    this.basePath = basePath;
+    this.unitType = unitType;
+    this.unitId = unitId;
+  }
 
   /**
    * Process an SDK assistant message, translating tool_use content blocks
