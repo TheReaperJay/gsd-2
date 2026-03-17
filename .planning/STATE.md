@@ -6,14 +6,14 @@ current_phase: 1
 current_phase_name: Pipeline Extraction
 current_plan: 1
 status: executing
-stopped_at: Completed 02-core-infrastructure-02-03-PLAN.md
-last_updated: "2026-03-17T18:55:20.233Z"
+stopped_at: Completed 02-core-infrastructure-01-PLAN.md
+last_updated: "2026-03-17T19:01:56.181Z"
 last_activity: 2026-03-17
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -36,8 +36,8 @@ Current Plan: 1
 Total Plans in Phase: 1
 Status: In progress
 Last Activity: 2026-03-17
-Last session: 2026-03-17T18:55:20.231Z
-Stopped At: Completed 02-core-infrastructure-02-03-PLAN.md
+Last session: 2026-03-17T19:01:56.179Z
+Stopped At: Completed 02-core-infrastructure-01-PLAN.md
 Resume File: None
 
 Progress: [░░░░░░░░░░] 0%
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02-core-infrastructure P04 | 25 | 1 tasks | 2 files |
 | Phase 02-core-infrastructure P05 | 7 | 1 tasks | 2 files |
 | Phase 02-core-infrastructure P03 | 6min | 1 tasks | 2 files |
+| Phase 02-core-infrastructure P01 | 14min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 02-core-infrastructure]: typeboxToZodShape returns raw shape Record<string, z.ZodTypeAny> not z.ZodObject — SDK tool() expects AnyZodRawShape directly
 - [Phase 02-core-infrastructure]: Optionality detected via schema.required array absence, not TypeBox Symbol marker — more robust and follows JSON Schema spec
 - [Phase 02-core-infrastructure]: SDK import wrapped in try/catch with install instructions — optional dependency fails at call time, not module load time
+- [Phase 02-core-infrastructure]: ClaudeCodeCredential.set() uses simple replace semantics — only one claude-code credential makes sense
+- [Phase 02-core-infrastructure]: resolveProviderRouting accepts AuthStorage instance directly for in-memory testing without temp files
+- [Phase 02-core-infrastructure]: register-ts.mjs uses --experimental-transform-types due to TypeScript parameter properties in FileAuthStorageBackend
 
 ### Pending Todos
 

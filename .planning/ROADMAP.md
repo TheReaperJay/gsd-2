@@ -13,7 +13,7 @@ This milestone adds a second execution path to GSD-2's agent dispatch. Subscript
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Pipeline Extraction** - Extract post-unit pipeline into shared function; prevents state corruption before any new dispatch code is written (completed 2026-03-17)
-- [ ] **Phase 2: Core Infrastructure** - Build all leaf-node modules (routing, tools, activity writer) and supporting auth/model changes
+- [x] **Phase 2: Core Infrastructure** - Build all leaf-node modules (routing, tools, activity writer) and supporting auth/model changes (completed 2026-03-17)
 - [ ] **Phase 3: Core Dispatch** - Implement sdk-executor and wire the auto.ts branch; all critical pitfalls addressed here
 - [ ] **Phase 4: Onboarding & Auth** - Add Claude Code provider to onboarding flow with CLI prerequisite check
 - [ ] **Phase 5: Integration & Recovery** - Validate session resume, crash recovery forensics, idle watchdog, and concurrency behavior
@@ -47,7 +47,7 @@ Plans:
   7. Per-unit cost is accumulated from `total_cost_usd` in SDK result messages and surfaced in GSD metrics
   8. SDK hook bridge module translates PreToolUse/PostToolUse callbacks into GSD's existing tool_call/tool_result event format, enabling TUI progress, inFlightTools tracking, and idle detection to work identically to Pi path
   9. GSD complexity classifier maps to SDK `thinking`/`effort` options, matching the behavior parity of existing Pi provider thinking configuration
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 - [ ] 02-01-PLAN.md — Auth credential type extension + provider routing
@@ -100,7 +100,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Pipeline Extraction | 1/1 | Complete   | 2026-03-17 |
-| 2. Core Infrastructure | 4/5 | In Progress|  |
+| 2. Core Infrastructure | 5/5 | Complete   | 2026-03-17 |
 | 3. Core Dispatch | 0/TBD | Not started | - |
 | 4. Onboarding & Auth | 0/TBD | Not started | - |
 | 5. Integration & Recovery | 0/TBD | Not started | - |

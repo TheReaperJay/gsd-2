@@ -26,7 +26,7 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 - [ ] **AUTH-01**: User can select "Claude Code (Subscription)" as provider during onboarding
 - [ ] **AUTH-02**: Onboarding verifies Claude Code CLI is installed and authenticated
 - [x] **AUTH-03**: GSD model IDs map correctly to Claude Code model aliases (opus, sonnet, haiku)
-- [ ] **AUTH-04**: Auth storage handles `type: "claude-code"` credential type (no token stored, signals "use Claude Code")
+- [x] **AUTH-04**: Auth storage handles `type: "claude-code"` credential type (no token stored, signals "use Claude Code")
 
 ### Observability & Recovery
 
@@ -78,7 +78,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | AUTH-01 | Phase 4 | Pending |
 | AUTH-02 | Phase 4 | Pending |
 | AUTH-03 | Phase 2 | Complete |
-| AUTH-04 | Phase 2 | Pending |
+| AUTH-04 | Phase 2 | Complete |
 | OBS-01 | Phase 2 | Complete |
 | OBS-02 | Phase 2 | Complete |
 | OBS-03 | Phase 5 | Pending |
