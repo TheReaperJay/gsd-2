@@ -18,13 +18,13 @@ import type {
 
 import { deriveState } from "./state.js";
 import type { BudgetEnforcementMode, GSDState } from "./types.js";
-import { loadFile, parseRoadmap, getManifestStatus, resolveAllOverrides, parseSummary } from "./files.js";
+import { loadFile, parseRoadmap, getManifestStatus } from "./files.js";
 import { loadPrompt } from "./prompt-loader.js";
 export { inlinePriorMilestoneSummary } from "./files.js";
 import { collectSecretsFromManifest } from "../get-secrets-from-user.js";
 import {
   gsdRoot, resolveMilestoneFile, resolveSliceFile, resolveSlicePath,
-  resolveMilestonePath, resolveDir, resolveTasksDir, resolveTaskFile,
+  resolveMilestonePath, resolveDir, resolveTasksDir,
   relMilestoneFile, relSliceFile, relSlicePath, relMilestonePath,
   milestonesDir,
   buildMilestoneFileName, buildSliceFileName, buildTaskFileName,
@@ -64,11 +64,9 @@ import {
   formatValidationIssues,
 } from "./observability-validator.js";
 import { ensureGitignore, untrackRuntimeFiles } from "./gitignore.js";
-import { runGSDDoctor, rebuildState, summarizeDoctorIssues } from "./doctor.js";
+import { runGSDDoctor, rebuildState } from "./doctor.js";
 import {
   preDispatchHealthGate,
-  recordHealthSnapshot,
-  checkHealEscalation,
   resetProactiveHealing,
   formatHealthSummary,
   getConsecutiveErrorUnits,
@@ -108,7 +106,6 @@ import {
   autoWorktreeBranch,
 } from "./auto-worktree.js";
 import { pruneQueueOrder } from "./queue-order.js";
-import { consumeSignal } from "./session-status-io.js";
 import { showNextAction } from "../shared/next-action-ui.js";
 import { debugLog, debugTime, debugCount, debugPeak, enableDebug, isDebugEnabled, writeDebugSummary, getDebugLogPath } from "./debug-logger.js";
 import {
@@ -125,7 +122,7 @@ import {
   buildLoopRemediationSteps,
   reconcileMergeState,
 } from "./auto-recovery.js";
-import { resolveDispatch, resetRewriteCircuitBreaker } from "./auto-dispatch.js";
+import { resolveDispatch } from "./auto-dispatch.js";
 import {
   buildResearchSlicePrompt,
   buildResearchMilestonePrompt,
@@ -158,74 +155,8 @@ import {
 } from "./auto-supervisor.js";
 import { isDbAvailable } from "./gsd-db.js";
 import { hasPendingCaptures, loadPendingCaptures, countPendingCaptures } from "./captures.js";
-
-// ─── Worktree → Project Root State Sync ───────────────────────────────────────
-// When running in an auto-worktree, dispatch state (.gsd/ metadata) diverges
-// between the worktree (where work happens) and the project root (where
-// startAutoMode reads initial state on restart). Without syncing, restarting
-// auto-mode reads stale state from the project root and re-dispatches
-// already-completed units.
-
-/**
- * Sync dispatch-critical .gsd/ state files from worktree to project root.
- * Only runs when inside an auto-worktree (worktreePath differs from projectRoot).
- * Copies: STATE.md + active milestone directory (roadmap, slice plans, task summaries).
- * Non-fatal — sync failure should never block dispatch.
- */
-function syncStateToProjectRoot(worktreePath: string, projectRoot: string, milestoneId: string | null): void {
-  if (!worktreePath || !projectRoot || worktreePath === projectRoot) return;
-  if (!milestoneId) return;
-
-  const wtGsd = join(worktreePath, ".gsd");
-  const prGsd = join(projectRoot, ".gsd");
-
-  // 1. STATE.md — the quick-glance status used by initial deriveState()
-  try {
-    const src = join(wtGsd, "STATE.md");
-    const dst = join(prGsd, "STATE.md");
-    if (existsSync(src)) cpSync(src, dst, { force: true });
-  } catch { /* non-fatal */ }
-
-  // 2. Milestone directory — ROADMAP, slice PLANs, task summaries
-  // Copy the entire milestone .gsd subtree so deriveState reads current checkboxes
-  try {
-    const srcMilestone = join(wtGsd, "milestones", milestoneId);
-    const dstMilestone = join(prGsd, "milestones", milestoneId);
-    if (existsSync(srcMilestone)) {
-      mkdirSync(dstMilestone, { recursive: true });
-      cpSync(srcMilestone, dstMilestone, { recursive: true, force: true });
-    }
-  } catch { /* non-fatal */ }
-
-  // 3. Merge completed-units.json (set-union of both locations)
-  // Prevents already-completed units from being re-dispatched after crash/restart.
-  const srcKeysFile = join(wtGsd, "completed-units.json");
-  const dstKeysFile = join(prGsd, "completed-units.json");
-  if (existsSync(srcKeysFile)) {
-    try {
-      const srcKeys: string[] = JSON.parse(readFileSync(srcKeysFile, "utf8"));
-      let dstKeys: string[] = [];
-      if (existsSync(dstKeysFile)) {
-        try { dstKeys = JSON.parse(readFileSync(dstKeysFile, "utf8")); } catch { /* ignore corrupt dst */ }
-      }
-      const merged = [...new Set([...dstKeys, ...srcKeys])];
-      writeFileSync(dstKeysFile, JSON.stringify(merged, null, 2));
-    } catch { /* non-fatal */ }
-  }
-
-  // 4. Runtime records — unit dispatch state used by selfHealRuntimeRecords().
-  // Without this, a crash during a unit leaves the runtime record only in the
-  // worktree. If the next session resolves basePath before worktree re-entry,
-  // selfHeal can't find or clear the stale record (#769).
-  try {
-    const srcRuntime = join(wtGsd, "runtime", "units");
-    const dstRuntime = join(prGsd, "runtime", "units");
-    if (existsSync(srcRuntime)) {
-      mkdirSync(dstRuntime, { recursive: true });
-      cpSync(srcRuntime, dstRuntime, { recursive: true, force: true });
-    }
-  } catch { /* non-fatal */ }
-}
+import { runPostUnitPipeline } from "./post-unit-pipeline.js";
+import type { PostUnitPipelineResult } from "./post-unit-pipeline.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -1297,236 +1228,43 @@ export async function handleAgentEnd(
 
   try {
 
-  // Unit completed — clear its timeout
+  // Unit completed — clear its timeout (Pi-specific: clears timer handles + inFlightTools)
   clearUnitTimeout();
 
-    // ── Parallel worker signal check ─────────────────────────────────────
-    // When running as a parallel worker (GSD_MILESTONE_LOCK set), check for
-    // coordinator signals before dispatching the next unit.
-    const milestoneLock = process.env.GSD_MILESTONE_LOCK;
-    if (milestoneLock) {
-      const signal = consumeSignal(basePath, milestoneLock);
-      if (signal) {
-        if (signal.signal === "stop") {
-          _handlingAgentEnd = false;
-          await stopAuto(ctx, pi);
-          return;
-        }
-        if (signal.signal === "pause") {
-          _handlingAgentEnd = false;
-          await pauseAuto(ctx, pi);
-          return;
-        }
-        // "resume" and "rebase" signals are handled elsewhere or no-op here
-      }
-    }
-
-  // Invalidate all caches — the unit just completed and may have
-  // written planning files (task summaries, roadmap checkboxes, etc.)
-  invalidateAllCaches();
-
-  // Small delay to let files settle (git commits, file writes)
-  await new Promise(r => setTimeout(r, 500));
-
-  // Commit any dirty files the LLM left behind on the current branch.
-  // For execute-task units, build a meaningful commit message from the
-  // task summary (one-liner, key_files, inferred type). For other unit
-  // types, fall back to the generic chore() message.
+  // Run shared post-unit pipeline (commit, doctor, state rebuild, artifact verify, completion key)
   if (currentUnit) {
-    try {
-      let taskContext: TaskCommitContext | undefined;
+    const pipelineResult: PostUnitPipelineResult = await runPostUnitPipeline({
+      ctx,
+      pi,
+      basePath,
+      originalBasePath,
+      currentMilestoneId,
+      currentUnit,
+      completedKeySet,
+      lastPromptCharCount,
+      lastBaselineCharCount,
+      currentUnitRouting,
+    });
 
-      if (currentUnit.type === "execute-task") {
-        const parts = currentUnit.id.split("/");
-        const [mid, sid, tid] = parts;
-        if (mid && sid && tid) {
-          const summaryPath = resolveTaskFile(basePath, mid, sid, tid, "SUMMARY");
-          if (summaryPath) {
-            try {
-              const summaryContent = await loadFile(summaryPath);
-              if (summaryContent) {
-                const summary = parseSummary(summaryContent);
-                taskContext = {
-                  taskId: `${sid}/${tid}`,
-                  taskTitle: summary.title?.replace(/^T\d+:\s*/, "") || tid,
-                  oneLiner: summary.oneLiner || undefined,
-                  keyFiles: summary.frontmatter.key_files?.filter(f => !f.includes("{{")) || undefined,
-                };
-              }
-            } catch {
-              // Non-fatal — fall back to generic message
-            }
-          }
-        }
-      }
-
-      const commitMsg = autoCommitCurrentBranch(basePath, currentUnit.type, currentUnit.id, taskContext);
-      if (commitMsg) {
-        ctx.ui.notify(`Committed: ${commitMsg.split("\n")[0]}`, "info");
-      }
-    } catch {
-      // Non-fatal
+    // Handle parallel worker signals — shared function detected but doesn't act
+    if (pipelineResult.shouldStop) {
+      _handlingAgentEnd = false;
+      await stopAuto(ctx, pi);
+      return;
+    }
+    if (pipelineResult.shouldPause) {
+      _handlingAgentEnd = false;
+      await pauseAuto(ctx, pi);
+      return;
     }
 
-    // Post-hook: fix mechanical bookkeeping the LLM may have skipped.
-    // 1. Doctor handles: checkbox marking (task-level bookkeeping).
-    // 2. STATE.md is always rebuilt from disk state (purely derived, no LLM needed).
-    // fixLevel:"task" ensures doctor only fixes task-level issues (e.g. marking
-    // checkboxes). Slice/milestone completion transitions (summary stubs,
-    // roadmap [x] marking) are left for the complete-slice dispatch unit.
-    try {
-      const scopeParts = currentUnit.id.split("/").slice(0, 2);
-      const doctorScope = scopeParts.join("/");
-      const report = await runGSDDoctor(basePath, { fix: true, scope: doctorScope, fixLevel: "task" });
-      if (report.fixesApplied.length > 0) {
-        ctx.ui.notify(`Post-hook: applied ${report.fixesApplied.length} fix(es).`, "info");
-      }
-
-      // ── Proactive health tracking ──────────────────────────────────────
-      // Record health snapshot for trend analysis and escalation logic.
-      const summary = summarizeDoctorIssues(report.issues);
-      recordHealthSnapshot(summary.errors, summary.warnings, report.fixesApplied.length);
-
-      // Check if we should escalate to LLM-assisted heal
-      if (summary.errors > 0) {
-        const unresolvedErrors = report.issues
-          .filter(i => i.severity === "error" && !i.fixable)
-          .map(i => ({ code: i.code, message: i.message, unitId: i.unitId }));
-        const escalation = checkHealEscalation(summary.errors, unresolvedErrors);
-        if (escalation.shouldEscalate) {
-          ctx.ui.notify(
-            `Doctor heal escalation: ${escalation.reason}. Dispatching LLM-assisted heal.`,
-            "warning",
-          );
-          try {
-            const { formatDoctorIssuesForPrompt, formatDoctorReport } = await import("./doctor.js");
-            const { dispatchDoctorHeal } = await import("./commands.js");
-            const actionable = report.issues.filter(i => i.severity === "error");
-            const reportText = formatDoctorReport(report, { scope: doctorScope, includeWarnings: true });
-            const structuredIssues = formatDoctorIssuesForPrompt(actionable);
-            dispatchDoctorHeal(pi, doctorScope, reportText, structuredIssues);
-          } catch {
-            // Non-fatal — escalation dispatch failure
-          }
-        }
-      }
-    } catch {
-      // Non-fatal — doctor failure should never block dispatch
-    }
-    try {
-      await rebuildState(basePath);
-      // State rebuild commit is bookkeeping — generic message is appropriate
-      autoCommitCurrentBranch(basePath, "state-rebuild", currentUnit.id);
-    } catch {
-      // Non-fatal
-    }
-
-    // ── Sync worktree state back to project root ──────────────────────────
-    // Ensures that if auto-mode restarts, deriveState(projectRoot) reads
-    // current milestone progress instead of stale pre-worktree state (#654).
-    if (originalBasePath && originalBasePath !== basePath) {
-      try {
-        syncStateToProjectRoot(basePath, originalBasePath, currentMilestoneId);
-      } catch {
-        // Non-fatal — stale state is the existing behavior, sync is an improvement
+    // Apply quick-tasks returned by triage resolution
+    if (pipelineResult.pendingQuickTasksToAdd.length > 0) {
+      for (const qt of pipelineResult.pendingQuickTasksToAdd) {
+        pendingQuickTasks.push(qt);
       }
     }
 
-    // ── Rewrite-docs completion: resolve overrides and reset circuit breaker ──
-    if (currentUnit.type === "rewrite-docs") {
-      try {
-        await resolveAllOverrides(basePath);
-        resetRewriteCircuitBreaker();
-        ctx.ui.notify("Override(s) resolved — rewrite-docs completed.", "info");
-      } catch {
-        // Non-fatal — verifyExpectedArtifact will catch unresolved overrides
-      }
-    }
-
-    // ── Post-triage: execute actionable resolutions (inject, replan, queue quick-tasks) ──
-    // After a triage-captures unit completes, the LLM has classified captures and
-    // updated CAPTURES.md. Now we execute those classifications: inject tasks into
-    // the plan, write replan triggers, and queue quick-tasks for dispatch.
-    if (currentUnit.type === "triage-captures") {
-      try {
-        const { executeTriageResolutions } = await import("./triage-resolution.js");
-        const state = await deriveState(basePath);
-        const mid = state.activeMilestone?.id;
-        const sid = state.activeSlice?.id;
-
-        if (mid && sid) {
-          const triageResult = executeTriageResolutions(basePath, mid, sid);
-
-          if (triageResult.injected > 0) {
-            ctx.ui.notify(
-              `Triage: injected ${triageResult.injected} task${triageResult.injected === 1 ? "" : "s"} into ${sid} plan.`,
-              "info",
-            );
-          }
-          if (triageResult.replanned > 0) {
-            ctx.ui.notify(
-              `Triage: replan trigger written for ${sid} — next dispatch will enter replanning.`,
-              "info",
-            );
-          }
-          if (triageResult.quickTasks.length > 0) {
-            // Queue quick-tasks for dispatch. They'll be picked up by the
-            // quick-task dispatch block below the triage check.
-            for (const qt of triageResult.quickTasks) {
-              pendingQuickTasks.push(qt);
-            }
-            ctx.ui.notify(
-              `Triage: ${triageResult.quickTasks.length} quick-task${triageResult.quickTasks.length === 1 ? "" : "s"} queued for execution.`,
-              "info",
-            );
-          }
-          for (const action of triageResult.actions) {
-            process.stderr.write(`gsd-triage: ${action}\n`);
-          }
-        }
-      } catch (err) {
-        // Non-fatal — triage resolution failure shouldn't block dispatch
-        process.stderr.write(`gsd-triage: resolution execution failed: ${(err as Error).message}\n`);
-      }
-    }
-
-    // ── Path A fix: verify artifact and persist completion before re-entering dispatch ──
-    // After doctor + rebuildState, check whether the just-completed unit actually
-    // produced its expected artifact. If so, persist the completion key now so the
-    // idempotency check at the top of dispatchNextUnit() skips it — even if
-    // deriveState() still returns this unit as active (e.g. branch mismatch).
-    //
-    // IMPORTANT: For non-hook units, defer persistence until after the hook check.
-    // If a post-unit hook requests a retry, we need to remove the completion key
-    // so dispatchNextUnit re-dispatches the trigger unit.
-    let triggerArtifactVerified = false;
-    if (!currentUnit.type.startsWith("hook/")) {
-      try {
-        triggerArtifactVerified = verifyExpectedArtifact(currentUnit.type, currentUnit.id, basePath);
-        if (triggerArtifactVerified) {
-          const completionKey = `${currentUnit.type}/${currentUnit.id}`;
-          if (!completedKeySet.has(completionKey)) {
-            persistCompletedKey(basePath, completionKey);
-            completedKeySet.add(completionKey);
-          }
-          invalidateAllCaches();
-        }
-      } catch {
-        // Non-fatal — worst case we fall through to normal dispatch which has its own checks
-      }
-    } else {
-      // Hook unit completed — finalize its runtime record and clear it
-      try {
-        writeUnitRuntimeRecord(basePath, currentUnit.type, currentUnit.id, currentUnit.startedAt, {
-          phase: "finalized",
-          progressCount: 1,
-          lastProgressKind: "hook-completed",
-        });
-        clearUnitRuntimeRecord(basePath, currentUnit.type, currentUnit.id);
-      } catch {
-        // Non-fatal
-      }
-    }
   }
 
   // ── DB dual-write: re-import changed markdown files so next unit's prompts use fresh data ──

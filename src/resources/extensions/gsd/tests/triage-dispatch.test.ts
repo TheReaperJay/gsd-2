@@ -16,10 +16,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const autoPath = join(__dirname, "..", "auto.ts");
 const hooksPath = join(__dirname, "..", "post-unit-hooks.ts");
 const autoPromptsPath = join(__dirname, "..", "auto-prompts.ts");
+const pipelinePath = join(__dirname, "..", "post-unit-pipeline.ts");
 
 const autoSrc = readFileSync(autoPath, "utf-8");
 const hooksSrc = readFileSync(hooksPath, "utf-8");
 const autoPromptsSrc = (() => { try { return readFileSync(autoPromptsPath, "utf-8"); } catch { return autoSrc; } })();
+// Post-triage resolution and artifact-verify logic moved to shared pipeline
+const pipelineSrc = readFileSync(pipelinePath, "utf-8");
 
 // ─── Hook exclusion ──────────────────────────────────────────────────────────
 
@@ -226,9 +229,10 @@ test("dashboard: overlay labels triage-captures and quick-task unit types", () =
 // ─── Post-triage resolution execution ─────────────────────────────────────────
 
 test("dispatch: post-triage resolution executor fires after triage-captures unit", () => {
-  const triageCompletionBlock = autoSrc.slice(
-    autoSrc.indexOf("Post-triage: execute actionable resolutions"),
-    autoSrc.indexOf("Path A fix: verify artifact"),
+  // Post-triage resolution logic was extracted into post-unit-pipeline.ts
+  const triageCompletionBlock = pipelineSrc.slice(
+    pipelineSrc.indexOf("Step 9: Post-triage resolution"),
+    pipelineSrc.indexOf("Step 10: Artifact verify"),
   );
   assert.ok(
     triageCompletionBlock.includes('currentUnit.type === "triage-captures"'),
@@ -241,9 +245,9 @@ test("dispatch: post-triage resolution executor fires after triage-captures unit
 });
 
 test("dispatch: post-triage executor handles inject results", () => {
-  const triageCompletionBlock = autoSrc.slice(
-    autoSrc.indexOf("Post-triage: execute actionable resolutions"),
-    autoSrc.indexOf("Path A fix: verify artifact"),
+  const triageCompletionBlock = pipelineSrc.slice(
+    pipelineSrc.indexOf("Step 9: Post-triage resolution"),
+    pipelineSrc.indexOf("Step 10: Artifact verify"),
   );
   assert.ok(
     triageCompletionBlock.includes("triageResult.injected"),
@@ -252,9 +256,9 @@ test("dispatch: post-triage executor handles inject results", () => {
 });
 
 test("dispatch: post-triage executor handles replan results", () => {
-  const triageCompletionBlock = autoSrc.slice(
-    autoSrc.indexOf("Post-triage: execute actionable resolutions"),
-    autoSrc.indexOf("Path A fix: verify artifact"),
+  const triageCompletionBlock = pipelineSrc.slice(
+    pipelineSrc.indexOf("Step 9: Post-triage resolution"),
+    pipelineSrc.indexOf("Step 10: Artifact verify"),
   );
   assert.ok(
     triageCompletionBlock.includes("triageResult.replanned"),
@@ -263,13 +267,13 @@ test("dispatch: post-triage executor handles replan results", () => {
 });
 
 test("dispatch: post-triage executor queues quick-tasks", () => {
-  const triageCompletionBlock = autoSrc.slice(
-    autoSrc.indexOf("Post-triage: execute actionable resolutions"),
-    autoSrc.indexOf("Path A fix: verify artifact"),
+  const triageCompletionBlock = pipelineSrc.slice(
+    pipelineSrc.indexOf("Step 9: Post-triage resolution"),
+    pipelineSrc.indexOf("Step 10: Artifact verify"),
   );
   assert.ok(
-    triageCompletionBlock.includes("pendingQuickTasks"),
-    "should push quick-tasks to pendingQuickTasks queue",
+    triageCompletionBlock.includes("pendingQuickTasksToAdd"),
+    "should add quick-tasks to pendingQuickTasksToAdd result field",
   );
 });
 

@@ -20,14 +20,14 @@ const pipelineSrc = readFileSync(pipelinePath, "utf-8");
 const autoSrc = readFileSync(autoPath, "utf-8");
 
 // Extract handleAgentEnd function body from auto.ts for scoped assertions.
-// We slice from its declaration to the next export async function declaration.
+// handleAgentEnd has a distinctive finally block: `} finally { _handlingAgentEnd = false; }`
+// We slice from its declaration to the end of that finally block.
 const handleAgentEndStart = autoSrc.indexOf("export async function handleAgentEnd(");
-const handleAgentEndBodyStart = autoSrc.indexOf("{", handleAgentEndStart);
-// Find the next top-level export function after handleAgentEnd
-const nextExportAfterHandleAgentEnd = autoSrc.indexOf("\nexport async function ", handleAgentEndBodyStart + 1);
-const handleAgentEndSrc = nextExportAfterHandleAgentEnd > 0
-  ? autoSrc.slice(handleAgentEndStart, nextExportAfterHandleAgentEnd)
-  : autoSrc.slice(handleAgentEndStart);
+const handleAgentEndFinallyMarker = "  } finally {\n    _handlingAgentEnd = false;\n  }\n}";
+const handleAgentEndEnd = autoSrc.indexOf(handleAgentEndFinallyMarker, handleAgentEndStart);
+const handleAgentEndSrc = handleAgentEndEnd > 0
+  ? autoSrc.slice(handleAgentEndStart, handleAgentEndEnd + handleAgentEndFinallyMarker.length)
+  : autoSrc.slice(handleAgentEndStart, autoSrc.indexOf("\nexport async function ", handleAgentEndStart + 100));
 
 // ─── Exports ───────────────────────────────────────────────────────────────
 

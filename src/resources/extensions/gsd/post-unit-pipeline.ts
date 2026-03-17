@@ -324,7 +324,7 @@ export async function runPostUnitPipeline(
     }
   }
 
-  // ── Step 9: Post-triage resolution ───────────────────────────────────────
+  // ── Step 9: Post-triage resolution ── Post-triage: execute actionable resolutions ──
   // After a triage-captures unit completes, the LLM has classified captures and
   // updated CAPTURES.md. Now we execute those classifications: inject tasks into
   // the plan, write replan triggers, and queue quick-tasks for dispatch.
@@ -370,7 +370,7 @@ export async function runPostUnitPipeline(
     }
   }
 
-  // ── Step 10: Artifact verify + completion key persistence ─────────────────
+  // ── Step 10: Artifact verify + completion key persistence ── Path A fix: verify artifact ──
   // After doctor + rebuildState, check whether the just-completed unit actually
   // produced its expected artifact. If so, persist the completion key now so the
   // idempotency check at the top of dispatchNextUnit() skips it — even if
