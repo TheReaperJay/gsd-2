@@ -96,23 +96,7 @@ export function isDepthVerified(): boolean {
 }
 
 // ── Write-gate: block CONTEXT.md writes during discussion without depth verification ──
-const MILESTONE_CONTEXT_RE = /M\d+(?:-[a-z0-9]{6})?-CONTEXT\.md$/;
-
-export function shouldBlockContextWrite(
-  toolName: string,
-  inputPath: string,
-  milestoneId: string | null,
-  depthVerified: boolean,
-): { block: boolean; reason?: string } {
-  if (toolName !== "write") return { block: false };
-  if (!milestoneId) return { block: false };
-  if (!MILESTONE_CONTEXT_RE.test(inputPath)) return { block: false };
-  if (depthVerified) return { block: false };
-  return {
-    block: true,
-    reason: `Blocked: Cannot write to milestone CONTEXT.md during discussion phase without depth verification. Call ask_user_questions with question id "depth_verification" first to confirm discussion depth before writing context.`,
-  };
-}
+export { shouldBlockContextWrite } from "./write-gate.js";
 
 // ── ASCII logo ────────────────────────────────────────────────────────────
 const GSD_LOGO_LINES = [

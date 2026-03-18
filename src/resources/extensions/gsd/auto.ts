@@ -157,6 +157,13 @@ import { isDbAvailable } from "./gsd-db.js";
 import { hasPendingCaptures, loadPendingCaptures, countPendingCaptures } from "./captures.js";
 import { runPostUnitPipeline } from "./post-unit-pipeline.js";
 import type { PostUnitPipelineResult } from "./post-unit-pipeline.js";
+import { resolveProviderRouting } from "./provider-routing.js";
+import { sdkExecuteUnit, getSdkActiveQuery, clearSdkActiveQuery } from "./claude-code/sdk-executor.js";
+import type { SdkExecutorResult } from "./claude-code/sdk-executor.js";
+import type { GsdToolEvent } from "./claude-code/hook-bridge.js";
+import { pauseAutoForProviderError } from "./provider-error-pause.js";
+import { getNextFallbackModel } from "./preferences.js";
+import { shouldBlockContextWrite } from "./write-gate.js";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -531,6 +538,22 @@ export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI, reason
   if (!active && !paused) return;
   const reasonSuffix = reason ? ` — ${reason}` : "";
   clearUnitTimeout();
+
+  // ── SDK cleanup: interrupt active query, then escalate to close() ────────────
+  const activeQuery = getSdkActiveQuery();
+  if (activeQuery) {
+    try {
+      // Graceful: send interrupt signal to the SDK subprocess
+      await (activeQuery as { interrupt: () => Promise<void> }).interrupt();
+    } catch {
+      // If interrupt is unavailable or fails, forcefully close the subprocess
+      try {
+        (activeQuery as { close: () => void }).close();
+      } catch { /* subprocess already terminated — nothing to do */ }
+    }
+    clearSdkActiveQuery();
+  }
+
   if (lockBase()) clearLock(lockBase());
   clearSkillSnapshot();
   resetSkillTelemetry();
@@ -2853,6 +2876,128 @@ async function dispatchNextUnit(
       }
     }
   }
+
+  // ── SDK dispatch: route claude-code users through sdkExecuteUnit() ──────────
+  // Checked here, after model selection, so effectiveModelId is resolved before branching.
+  // The SDK branch is an early return — when taken, the Pi supervision timers below
+  // (wrapupWarningHandle, idleWatchdogHandle, unitTimeoutHandle) are NEVER set up.
+  // They call pi.sendMessage() which has no effect on the SDK session (Pitfall 1).
+  const providerRouting = resolveProviderRouting();
+  if (providerRouting.provider === "claude-code") {
+    const supervisor = resolveAutoSupervisorConfig();
+    const softTimeoutMs = (supervisor.soft_timeout_minutes ?? 0) * 60 * 1000;
+    const idleTimeoutMs = (supervisor.idle_timeout_minutes ?? 0) * 60 * 1000;
+    const hardTimeoutMs = (supervisor.hard_timeout_minutes ?? 0) * 60 * 1000;
+
+    // Use the model resolved by the model-selection block above, or fall back to
+    // the unit's configured primary model, or the default alias.
+    const effectiveModelId = ctx.model?.id ?? modelConfig?.primary ?? "claude-sonnet-4-6";
+
+    // Complexity classification was already computed above (currentUnitRouting).
+    // Re-classify here to get the tier for SDK config resolution (getSdkTierConfig).
+    const classification = classifyUnitComplexity(unitType, unitId, basePath);
+
+    // Clear any stale timeout handles before the SDK call
+    clearUnitTimeout();
+
+    const sdkResult: SdkExecutorResult = await sdkExecuteUnit({
+      basePath,
+      unitType,
+      unitId,
+      systemPrompt: finalPrompt,
+      effectiveModelId,
+      complexityTier: classification.tier,
+      startedAt: currentUnit!.startedAt,
+      onToolStart: (e: GsdToolEvent) => markToolStart(e.toolCallId),
+      onToolEnd: (e: GsdToolEvent) => markToolEnd(e.toolCallId),
+      shouldBlockContextWrite: (toolName, inputPath, milestoneId, depthVerified) =>
+        shouldBlockContextWrite(toolName, inputPath, milestoneId, depthVerified),
+      getMilestoneId: () => currentMilestoneId,
+      // During auto task execution, depth verification is always considered done.
+      // The depth gate is a discussion-phase feature; auto-mode runs post-discussion.
+      isDepthVerified: () => true,
+      isUnitDone: () => verifyExpectedArtifact(unitType, unitId, basePath),
+      softTimeoutMs,
+      idleTimeoutMs,
+      hardTimeoutMs,
+    });
+
+    // Snapshot metrics for the completed SDK unit
+    if (currentUnit) {
+      const modelId = effectiveModelId;
+      snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId, {
+        promptCharCount: lastPromptCharCount,
+        baselineCharCount: lastBaselineCharCount,
+        ...(currentUnitRouting ?? {}),
+      });
+    }
+
+    // Handle SDK errors — replicates the index.ts agent_end error handler pattern
+    if (sdkResult.isError) {
+      const errorDetail = sdkResult.errorMessage ? `: ${sdkResult.errorMessage}` : "";
+
+      // Attempt model fallback (same logic as Pi path in index.ts lines 691-730)
+      if (modelConfig && modelConfig.fallbacks.length > 0) {
+        const nextModelId = getNextFallbackModel(effectiveModelId, modelConfig);
+        if (nextModelId) {
+          ctx.ui.notify(
+            `SDK error${errorDetail}. Switching to fallback: ${nextModelId} and re-dispatching.`,
+            "warning",
+          );
+          await dispatchNextUnit(ctx, pi);
+          return;
+        }
+      }
+
+      // No fallback available — pause for provider error
+      await pauseAutoForProviderError(ctx.ui, errorDetail, () => pauseAuto(ctx, pi), {
+        isRateLimit: sdkResult.isRateLimit,
+        retryAfterMs: undefined,
+        resume: () => {
+          // On resume after rate limit, re-dispatch the unit
+          void dispatchNextUnit(ctx, pi);
+        },
+      });
+      return;
+    }
+
+    // Success path: run post-unit pipeline (pi omitted — Claude Code path skips LLM-assisted doctor heal)
+    const pipelineResult = await runPostUnitPipeline({
+      ctx,
+      // pi is intentionally omitted — Claude Code path skips doctor-heal escalation
+      basePath,
+      originalBasePath,
+      currentMilestoneId,
+      currentUnit: currentUnit!,
+      completedKeySet,
+      lastPromptCharCount,
+      lastBaselineCharCount,
+      currentUnitRouting,
+    });
+
+    // Handle pipeline signals (identical to Pi path in handleAgentEnd)
+    if (pipelineResult.shouldStop) {
+      await stopAuto(ctx, pi);
+      return;
+    }
+    if (pipelineResult.shouldPause) {
+      await pauseAuto(ctx, pi);
+      return;
+    }
+
+    // Apply quick-tasks returned by triage resolution
+    if (pipelineResult.pendingQuickTasksToAdd.length > 0) {
+      for (const qt of pipelineResult.pendingQuickTasksToAdd) {
+        pendingQuickTasks.push(qt);
+      }
+    }
+
+    // Continue dispatch loop
+    await dispatchNextUnit(ctx, pi);
+    return;
+  }
+
+  // ── Pi path continues below (existing code unchanged) ───────────────────────
 
   // Start progress-aware supervision: a soft warning, an idle watchdog, and
   // a larger hard ceiling. Productive long-running tasks may continue past the

@@ -165,6 +165,14 @@ export function setSdkActiveQuery(
   sdkActiveQueryRef = q;
 }
 
+/**
+ * Clears the active SDK query reference.
+ * Called by stopAuto() after interrupt()/close() to prevent stale cancel attempts.
+ */
+export function clearSdkActiveQuery(): void {
+  sdkActiveQueryRef = null;
+}
+
 // ─── SteeringQueue ──────────────────────────────────────────────────────────
 
 /**
