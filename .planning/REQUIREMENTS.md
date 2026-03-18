@@ -12,7 +12,7 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 - [x] **EXEC-01**: Subscription user can dispatch GSD units (research/plan/execute/complete) through Claude Agent SDK `query()` instead of Pi's agent loop
 - [x] **EXEC-02**: Post-unit pipeline (commit, doctor, state rebuild, artifact verify, completion key) runs identically on both Pi and Claude Code paths via shared function
 - [x] **EXEC-03**: SDK errors (max_turns_reached, error_during_execution, error_max_budget_usd) map to GSD error handling and model fallback logic
-- [ ] **EXEC-04**: User can cancel a running Claude Code unit via AbortController wired to stopAuto()
+- [x] **EXEC-04**: User can cancel a running Claude Code unit via AbortController wired to stopAuto()
 - [ ] **EXEC-05**: Interrupted Claude Code units can resume via SDK session ID on retry
 - [x] **EXEC-06**: Each unit type has a configurable maxTurns limit to bound execution length
 
@@ -70,7 +70,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | EXEC-01 | Phase 3 | Complete |
 | EXEC-02 | Phase 1 | Complete |
 | EXEC-03 | Phase 3 | Complete |
-| EXEC-04 | Phase 3 | Pending |
+| EXEC-04 | Phase 3 | Complete |
 | EXEC-05 | Phase 5 | Pending |
 | EXEC-06 | Phase 3 | Complete |
 | TOOL-01 | Phase 2 | Complete |
