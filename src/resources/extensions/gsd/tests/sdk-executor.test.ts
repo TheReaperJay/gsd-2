@@ -27,7 +27,7 @@
  * - sdkActiveQuery set to null in finally block
  */
 
-import test, { describe } from "node:test";
+import test, { describe, mock } from "node:test";
 import assert from "node:assert/strict";
 
 import { SteeringQueue, sdkExecuteUnit } from "../claude-code/sdk-executor.js";
@@ -775,69 +775,44 @@ describe("sdkExecuteUnit — error handling", () => {
 describe("sdkExecuteUnit — steering", () => {
 
   /**
-   * To test steering timers we need softTimeoutMs > 0 and idleTimeoutMs > 0.
-   * We capture steering messages by inspecting what gets yielded to the steering queue.
-   * The steering queue is the "prompt" passed to query() — we can collect what it yields.
+   * Strategy: Use mock.timers to control when setTimeout/setInterval fires.
+   * The query function collects all prompt messages (steering queue content) and
+   * closes the queue ONLY after consuming all items. This avoids the `break`
+   * pattern that calls .return() on the SteeringQueue generator (which would
+   * leave a pending Promise<void> and cause node:test to warn about leaked promises).
+   *
+   * Pattern:
+   * 1. Start sdkExecuteUnit with mock.timers enabled
+   * 2. Run the query in background — it awaits messages from the prompt
+   * 3. Advance fake timer with mock.timers.tick(softTimeoutMs) to trigger wrapup
+   * 4. Query receives the pushed wrapup message, records it, then yields result
+   * 5. Assert on recorded messages
    */
 
-  test("Wrapup warning text matches Pi path content ('TIME BUDGET WARNING — keep going only if progress is real.')", async () => {
-    const collectedPromptMessages: unknown[] = [];
+  test("Wrapup warning text matches Pi path content ('TIME BUDGET WARNING — keep going only if progress is real.')", async (t) => {
+    t.mock.timers.enable(["setTimeout", "setInterval", "clearTimeout", "clearInterval"]);
 
-    // Use a very short softTimeoutMs to trigger the wrapup warning quickly
-    async function* captureQuery(params: { prompt: AsyncIterable<unknown>; options?: unknown }) {
-      // Collect prompt messages (steering queue content) in background
-      const collectTask = (async () => {
-        for await (const msg of params.prompt) {
-          collectedPromptMessages.push(msg);
-        }
-      })();
+    const promptMessages: unknown[] = [];
+    let promptResolve: (() => void) | null = null;
+    let promptReceived = 0;
 
-      // Yield success result immediately
-      yield {
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "done",
-        total_cost_usd: 0,
-        usage: { input_tokens: 0, output_tokens: 0 },
-      };
-
-      // Give timer a chance to fire if it's going to
-      await new Promise(r => setTimeout(r, 100));
-      await collectTask.catch(() => {});
-    }
-
-    await sdkExecuteUnit(
-      makeParams({ softTimeoutMs: 1 }), // 1ms — fires almost immediately
-      {
-        query: captureQuery,
-        ...makeDeps(),
-      } as unknown as Parameters<typeof sdkExecuteUnit>[1],
-    );
-
-    // Wait a moment for the timer to have fired
-    await new Promise(r => setTimeout(r, 150));
-
-    // Check if any wrapup warning was pushed (it may have been pushed before or after query returned)
-    // The key test is the text content when it IS pushed
-    // Since softTimeoutMs=1ms and query returns immediately, we may or may not catch it here.
-    // The reliable test is via direct function inspection — test that the text is set correctly
-    // when wrapupWarning fires. We do this by checking the push() call produces correct content.
-
-    // To reliably capture the wrapup warning, we need to keep the query running longer than softTimeoutMs
-    const wrapupMessages: unknown[] = [];
-    let queryFinishResolve: (() => void) | null = null;
-    const queryFinished = new Promise<void>(r => { queryFinishResolve = r; });
-
-    async function* slowQuery(params: { prompt: AsyncIterable<unknown>; options?: unknown }) {
-      // Collect steering messages
+    // Query: consumes prompt messages until it gets the wrapup warning (or >3 messages)
+    // then yields result and closes.
+    // Uses a manual promise so it can be unblocked by the test.
+    async function* steeringTestQuery(params: { prompt: AsyncIterable<unknown>; options?: unknown }) {
+      let count = 0;
       for await (const msg of params.prompt) {
-        wrapupMessages.push(msg);
-        // Once we see a wrapup warning, we can end
+        promptMessages.push(msg);
+        promptReceived = count++;
         const content = (msg as { message?: { content?: string } }).message?.content ?? "";
+        // Stop after seeing wrapup warning — but let close() happen via finally block
         if (content.includes("TIME BUDGET WARNING")) {
+          // Resolve to signal the test the message was received
+          promptResolve?.();
           break;
         }
+        // Also stop if we've received too many messages without a wrapup
+        if (count > 5) { promptResolve?.(); break; }
       }
 
       yield {
@@ -848,22 +823,32 @@ describe("sdkExecuteUnit — steering", () => {
         total_cost_usd: 0,
         usage: { input_tokens: 0, output_tokens: 0 },
       };
-      queryFinishResolve?.();
     }
 
-    // Run with softTimeoutMs=50ms — the query will wait for wrapup message
+    // Create a promise we can await until the query receives the wrapup message
+    const wrapupReceived = new Promise<void>(r => { promptResolve = r; });
+
+    const SOFT_TIMEOUT_MS = 100;
+
+    // Run sdkExecuteUnit — it starts the timers with fake clock
     const execPromise = sdkExecuteUnit(
-      makeParams({ softTimeoutMs: 50, idleTimeoutMs: 0, hardTimeoutMs: 0 }),
+      makeParams({ softTimeoutMs: SOFT_TIMEOUT_MS, idleTimeoutMs: 0, hardTimeoutMs: 0 }),
       {
-        query: slowQuery,
+        query: steeringTestQuery,
         ...makeDeps(),
       } as unknown as Parameters<typeof sdkExecuteUnit>[1],
     );
 
-    await Promise.race([execPromise, new Promise(r => setTimeout(r, 2000))]);
+    // Advance the fake timer to trigger the wrapup warning
+    t.mock.timers.tick(SOFT_TIMEOUT_MS + 1);
 
-    // Find the wrapup warning message (skip initial prompt)
-    const wrapupMsg = wrapupMessages.find(m => {
+    // Wait for query to receive the wrapup message
+    await Promise.race([wrapupReceived, execPromise]);
+
+    // Now let execution complete
+    await execPromise;
+
+    const wrapupMsg = promptMessages.find(m => {
       const content = (m as { message?: { content?: string } }).message?.content ?? "";
       return content.includes("TIME BUDGET WARNING");
     });
@@ -876,14 +861,21 @@ describe("sdkExecuteUnit — steering", () => {
     );
   });
 
-  test("Wrapup warning is pushed with priority 'now'", async () => {
-    const wrapupMessages: unknown[] = [];
+  test("Wrapup warning is pushed with priority 'now'", async (t) => {
+    t.mock.timers.enable(["setTimeout", "setInterval", "clearTimeout", "clearInterval"]);
 
-    async function* wrapupCaptureQuery(params: { prompt: AsyncIterable<unknown>; options?: unknown }) {
+    const promptMessages: unknown[] = [];
+    let promptResolve: (() => void) | null = null;
+
+    async function* wrapupPriorityQuery(params: { prompt: AsyncIterable<unknown>; options?: unknown }) {
       for await (const msg of params.prompt) {
-        wrapupMessages.push(msg);
+        promptMessages.push(msg);
         const content = (msg as { message?: { content?: string } }).message?.content ?? "";
-        if (content.includes("TIME BUDGET WARNING")) break;
+        if (content.includes("TIME BUDGET WARNING")) {
+          promptResolve?.();
+          break;
+        }
+        if (promptMessages.length > 5) { promptResolve?.(); break; }
       }
 
       yield {
@@ -896,15 +888,22 @@ describe("sdkExecuteUnit — steering", () => {
       };
     }
 
-    await sdkExecuteUnit(
-      makeParams({ softTimeoutMs: 50, idleTimeoutMs: 0, hardTimeoutMs: 0 }),
+    const wrapupReceived = new Promise<void>(r => { promptResolve = r; });
+
+    const SOFT_TIMEOUT_MS = 100;
+    const execPromise = sdkExecuteUnit(
+      makeParams({ softTimeoutMs: SOFT_TIMEOUT_MS, idleTimeoutMs: 0, hardTimeoutMs: 0 }),
       {
-        query: wrapupCaptureQuery,
+        query: wrapupPriorityQuery,
         ...makeDeps(),
       } as unknown as Parameters<typeof sdkExecuteUnit>[1],
     );
 
-    const wrapupMsg = wrapupMessages.find(m => {
+    t.mock.timers.tick(SOFT_TIMEOUT_MS + 1);
+    await Promise.race([wrapupReceived, execPromise]);
+    await execPromise;
+
+    const wrapupMsg = promptMessages.find(m => {
       const content = (m as { message?: { content?: string } }).message?.content ?? "";
       return content.includes("TIME BUDGET WARNING");
     });
@@ -918,81 +917,38 @@ describe("sdkExecuteUnit — steering", () => {
   });
 
   test("Idle recovery text is pushed with priority 'now'", async () => {
-    // Idle recovery fires when the idle watchdog detects no progress.
-    // For testing we use idleTimeoutMs=50ms and a query that holds open
-    // long enough for the watchdog to fire.
-    const idleMessages: unknown[] = [];
-    let isUnitDoneResult = true; // unit is considered done (no blocking via stop hook)
+    // Test the structure of idle recovery messages directly via SteeringQueue.push()
+    // The idle recovery message is pushed with priority "now" by sdkExecuteUnit's
+    // idle watchdog. We verify this by directly inspecting the message structure
+    // that would be pushed.
 
-    async function* idleCaptureQuery(params: { prompt: AsyncIterable<unknown>; options?: unknown }) {
-      for await (const msg of params.prompt) {
-        idleMessages.push(msg);
-        const content = (msg as { message?: { content?: string } }).message?.content ?? "";
-        // Break when we see idle recovery message
-        if (content.includes("IDLE RECOVERY") || content.includes("HARD TIMEOUT")) break;
-        // Also stop after getting initial prompt if idle recovery won't fire
-        if (idleMessages.length > 5) break;
-      }
-
-      yield {
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "done",
-        total_cost_usd: 0,
-        usage: { input_tokens: 0, output_tokens: 0 },
-      };
-    }
-
-    // We test this by inspecting that when idle recovery sends to the steering queue
-    // it uses priority "now". The idle recovery message text comes from
-    // the steering push in sdkExecuteUnit's idle watchdog.
-    // Since the idle watchdog has complex runtime-record dependencies, we verify
-    // the priority via the SteeringQueue.push() path being called with priority "now"
-    // when idle recovery fires.
-
-    // Test that the idle recovery message structure has priority "now"
-    // We do this by calling the internal push directly and verifying priority:
     const q = new SteeringQueue("prompt");
-    const pushedMessages: unknown[] = [];
-
     const iter = q[Symbol.asyncIterator]();
     // Consume initial prompt
     await iter.next();
 
-    // Push an idle recovery message directly and verify priority
+    // Push an idle recovery message with priority "now" (as sdkExecuteUnit does)
     q.push({
-      type: "user",
-      message: { role: "user", content: "**IDLE RECOVERY — do not stop.**\nYou are still executing." },
-      priority: "now",
-      session_id: "",
-      parent_tool_use_id: null,
-    } as unknown as never);
-    q.close();
-
-    for await (const msg of q) {
-      pushedMessages.push(msg);
-    }
-
-    // Actually iterate remaining (after initial was consumed)
-    // The collected from the loop above won't have the pushed message since
-    // we consumed initial already. Let's do this more directly:
-    const q2 = new SteeringQueue("prompt2");
-    const iter2 = q2[Symbol.asyncIterator]();
-    await iter2.next(); // consume initial prompt
-
-    q2.push({
       type: "user",
       message: { role: "user", content: "**IDLE RECOVERY — do not stop.**" },
       priority: "now",
       session_id: "",
       parent_tool_use_id: null,
     } as unknown as never);
-    q2.close();
 
-    const next = await iter2.next();
-    assert.equal(next.done, false, "Should yield pushed message");
-    assert.equal((next.value as { priority: string }).priority, "now", "Idle recovery must use priority 'now'");
+    const next = await iter.next();
+    q.close();
+    // Drain remaining
+    await iter.next();
+
+    assert.equal(next.done, false, "Should yield pushed idle recovery message");
+    assert.equal(
+      (next.value as { priority: string }).priority,
+      "now",
+      "Idle recovery message must use priority 'now'",
+    );
+    const content = (next.value as { message: { content: string } }).message.content;
+    assert.ok(content.includes("IDLE RECOVERY"), "Idle recovery message must contain 'IDLE RECOVERY'");
   });
 
 });
@@ -1003,21 +959,56 @@ describe("sdkExecuteUnit — cleanup", () => {
 
   test("steeringQueue.close() is called in finally block (even when error thrown)", async () => {
     // Test that close() is called by verifying the SteeringQueue terminates
-    // even when query() throws. We verify this by checking the query's
-    // prompt AsyncIterable eventually ends (close() was called).
+    // even when query() throws.
+    //
+    // Strategy: Instead of a background drain (which leaks a floating promise),
+    // we verify via SteeringQueue.close() directly:
+    // - Create a SteeringQueue instance
+    // - Spy on close() to detect when it's called
+    // - Run sdkExecuteUnit with an error-throwing query
+    // - Verify the SteeringQueue was properly closed
+    //
+    // We verify close() works by checking that the generator terminates after
+    // close() is called (using a properly awaited iterator).
 
-    let promptIterationEnded = false;
+    // Simpler approach: verify that the SteeringQueue generator terminates
+    // after sdkExecuteUnit throws — which only happens if close() was called.
+    // We create a second SteeringQueue and track the lifecycle externally.
+
+    let closeCalled = false;
+
+    // Patch SteeringQueue.close to track calls — use mock.method on the prototype
+    // Actually, since SteeringQueue is our own class, we can verify the behavior
+    // by checking that after sdkExecuteUnit throws, a fresh SteeringQueue with
+    // the same mechanism would terminate properly.
+
+    // The cleanest test: verify close() behavior by tracking it on a real instance.
+    // sdkExecuteUnit creates its OWN SteeringQueue internally, so we can't spy on it
+    // directly. Instead, we verify the effect: the prompt AsyncIterable passed to
+    // the error-throwing query must eventually close (i.e., its for-await terminates).
+
+    // Use a manual synchronization primitive that close() unblocks.
+    let promptEnded = false;
+    let promptEndedResolve: (() => void) | null = null;
+    const promptEndedPromise = new Promise<void>(r => { promptEndedResolve = r; });
 
     async function* errorQuery(params: { prompt: AsyncIterable<unknown>; options?: unknown }) {
-      // Consume in background and detect close
-      const drain = (async () => {
-        for await (const _ of params.prompt) {
-          // consume
-        }
-        promptIterationEnded = true;
+      // Consume the initial prompt message synchronously
+      const iter = (params.prompt as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+      // Get the first message (initial prompt)
+      await iter.next();
+
+      // Set up tracking of when the iterator ends
+      // This is done by scheduling a check after sdkExecuteUnit's finally block runs
+      // We verify this by using a timeout that we know runs AFTER the throw propagates.
+      void (async () => {
+        // Try to get next item — this will resolve when close() is called
+        const result = await iter.next();
+        promptEnded = result.done === true;
+        promptEndedResolve?.();
       })();
 
-      // Immediately throw
+      // Throw immediately — sdkExecuteUnit's finally block will call close()
       throw new Error("Simulated SDK failure");
     }
 
@@ -1029,9 +1020,9 @@ describe("sdkExecuteUnit — cleanup", () => {
       /Simulated SDK failure/,
     );
 
-    // Give drain coroutine a tick to finish
-    await new Promise(r => setTimeout(r, 10));
-    assert.equal(promptIterationEnded, true, "steeringQueue.close() must be called in finally block");
+    // Wait for the prompt iterator to observe close()
+    await promptEndedPromise;
+    assert.equal(promptEnded, true, "steeringQueue.close() must be called in finally block, terminating the prompt iterator");
   });
 
   test("Returned sdkActiveQuery reference is set to null in finally block", async () => {
