@@ -6,14 +6,14 @@ current_phase: 1
 current_phase_name: Pipeline Extraction
 current_plan: 1
 status: executing
-stopped_at: Completed 03-core-dispatch-03-03-PLAN.md
-last_updated: "2026-03-18T08:39:08.002Z"
+stopped_at: Completed 04-onboarding-auth-04-01-PLAN.md
+last_updated: "2026-03-18T11:48:18.310Z"
 last_activity: 2026-03-18
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
+  completed_phases: 4
+  total_plans: 10
+  completed_plans: 10
   percent: 0
 ---
 
@@ -36,8 +36,8 @@ Current Plan: 1
 Total Plans in Phase: 1
 Status: In progress
 Last Activity: 2026-03-18
-Last session: 2026-03-18T08:33:44.402Z
-Stopped At: Completed 03-core-dispatch-03-03-PLAN.md
+Last session: 2026-03-18T11:48:18.308Z
+Stopped At: Completed 04-onboarding-auth-04-01-PLAN.md
 Resume File: None
 
 Progress: [░░░░░░░░░░] 0%
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03-core-dispatch P01 | 13min | 2 tasks | 2 files |
 | Phase 03-core-dispatch PP02 | 10min | 2 tasks | 4 files |
 | Phase 03-core-dispatch P03 | 4min | 2 tasks | 3 files |
+| Phase 04-onboarding-auth P01 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,9 @@ Recent decisions affecting current work:
 - [Phase 03-core-dispatch]: isDepthVerified passes () => true for SDK auto-mode path — depth gate is a discussion-phase feature, auto task execution is always post-discussion
 - [Phase 03-core-dispatch]: lastActivityAt declared at function scope before if (_deps) block — tracking wrappers and setInterval share the same variable
 - [Phase 03-core-dispatch]: EXEC-06 requirement text updated to time-based supervision via steering+Stop hook — ROADMAP.md item 5 already used correct wording
+- [Phase 04-onboarding-auth]: checkClaudeCodeCli accepts optional injected spawnFn (defaults to real spawnSync) — makes CLI check unit-testable without requiring real claude binary
+- [Phase 04-onboarding-auth]: Two-step CLI check: version check (binary exists?) then auth status check (loggedIn?) — no subscription type validation per CONTEXT.md locked decision
+- [Phase 04-onboarding-auth]: offerCliRetry uses recursive call pattern matching runOAuthFlow() — consistent retry UX across all auth failure flows
 
 ### Pending Todos
 
