@@ -2673,8 +2673,14 @@ async function dispatchNextUnit(
   // Write lock AFTER newSession so we capture the session file path.
   // Pi appends entries incrementally via appendFileSync, so on crash the
   // session file survives with every tool call up to the crash point.
-  const sessionFile = ctx.sessionManager.getSessionFile();
-  writeLock(lockBase(), unitType, unitId, completedUnits.length, sessionFile);
+  // For SDK (Claude Code) dispatch, omit sessionFile — crash recovery reads
+  // the SDK activity log directly. Passing the Pi session file would inject
+  // stale Pi entries as spurious forensic context for a crashed SDK unit.
+  const providerForLock = resolveProviderRouting();
+  const sessionFileForLock = providerForLock.provider === "claude-code"
+    ? undefined
+    : ctx.sessionManager.getSessionFile();
+  writeLock(lockBase(), unitType, unitId, completedUnits.length, sessionFileForLock);
 
   // On crash recovery, prepend the full recovery briefing
   // On retry (stuck detection), prepend deep diagnostic from last attempt
