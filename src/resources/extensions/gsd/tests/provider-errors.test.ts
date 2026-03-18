@@ -7,8 +7,13 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { classifyProviderError, pauseAutoForProviderError } from "../provider-error-pause.ts";
 import { getNextFallbackModel, isTransientNetworkError } from "../preferences.ts";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── classifyProviderError ────────────────────────────────────────────────────
 
@@ -39,6 +44,16 @@ test("classifyProviderError defaults to 60s for rate limit without reset", () =>
 
 test("classifyProviderError detects Anthropic internal server error", () => {
   const msg = '{"type":"error","error":{"details":null,"type":"api_error","message":"Internal server error"}}';
+  const result = classifyProviderError(msg);
+  assert.ok(result.isTransient);
+  assert.ok(!result.isRateLimit);
+  assert.equal(result.suggestedDelayMs, 30_000);
+});
+
+test("classifyProviderError detects Codex server_error from extracted message", () => {
+  // After fix, mapCodexEvents extracts the nested error type and produces
+  // "Codex server_error: <message>" instead of raw JSON.
+  const msg = "Codex server_error: An error occurred while processing your request.";
   const result = classifyProviderError(msg);
   assert.ok(result.isTransient);
   assert.ok(!result.isRateLimit);
@@ -242,4 +257,82 @@ test("pauseAutoForProviderError falls back to indefinite pause when not rate lim
   assert.deepEqual(notifications, [
     { message: "Auto-mode paused due to provider error: connection refused", level: "warning" },
   ]);
+});
+
+// ── Escalating backoff for transient errors (#1166) ─────────────────────────
+
+test("index.ts tracks consecutive transient errors for escalating backoff", () => {
+  const indexSource = readFileSync(join(__dirname, "..", "index.ts"), "utf-8");
+
+  assert.ok(
+    indexSource.includes("consecutiveTransientErrors"),
+    "index.ts must track consecutiveTransientErrors for escalating backoff (#1166)",
+  );
+  assert.ok(
+    indexSource.includes("MAX_TRANSIENT_AUTO_RESUMES"),
+    "index.ts must define MAX_TRANSIENT_AUTO_RESUMES to cap infinite retries (#1166)",
+  );
+});
+
+test("index.ts resets consecutive transient error counter on success", () => {
+  const indexSource = readFileSync(join(__dirname, "..", "index.ts"), "utf-8");
+
+  // After successful unit completion, the counter must be reset
+  const marker = "successful unit completion";
+  const successSection = indexSource.indexOf(marker);
+  assert.ok(successSection > -1, "must have success section that clears network retries");
+  const nearbyCode = indexSource.slice(Math.max(0, successSection - 100), successSection + 200);
+  assert.ok(
+    nearbyCode.includes("consecutiveTransientErrors = 0"),
+    "consecutive transient error counter must be reset on successful unit completion (#1166)",
+  );
+});
+
+test("index.ts applies escalating delay for repeated transient errors", () => {
+  const indexSource = readFileSync(join(__dirname, "..", "index.ts"), "utf-8");
+
+  // Must contain the exponential backoff formula
+  assert.ok(
+    /retryAfterMs\s*[=*].*2\s*\*\*/.test(indexSource),
+    "index.ts must escalate retryAfterMs exponentially for consecutive transient errors (#1166)",
+  );
+});
+
+// ── Codex error extraction (#1166) ──────────────────────────────────────────
+
+test("openai-codex-responses.ts extracts nested error fields", () => {
+  const codexSource = readFileSync(
+    join(__dirname, "../../../../../packages/pi-ai/src/providers/openai-codex-responses.ts"),
+    "utf-8",
+  );
+
+  // Must access event.error.message (nested), not just event.message (top-level)
+  assert.ok(
+    codexSource.includes("errorObj?.message"),
+    "mapCodexEvents must extract message from nested event.error object (#1166)",
+  );
+  assert.ok(
+    codexSource.includes("errorObj?.type"),
+    "mapCodexEvents must extract type from nested event.error object (#1166)",
+  );
+});
+
+// ── agent-session retryable regex handles server_error (#1166) ──────────────
+
+test("agent-session retryable error regex matches server_error (underscore)", () => {
+  // This regex is extracted from _isRetryableError in agent-session.ts.
+  // It must match both "server error" (space) and "server_error" (underscore)
+  // to properly classify Codex streaming errors as retryable.
+  const retryableRegex = /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|terminated|retry delay|network.?(?:is\s+)?unavailable|credentials.*expired|temporarily backed off/i;
+
+  // server_error (with underscore — Codex streaming error format)
+  assert.ok(retryableRegex.test("Codex server_error: An error occurred"));
+  // server error (with space — traditional HTTP error format)
+  assert.ok(retryableRegex.test("server error occurred"));
+  // internal_error (with underscore)
+  assert.ok(retryableRegex.test("internal_error: something went wrong"));
+  // internal error (with space)
+  assert.ok(retryableRegex.test("internal error"));
+  // non-retryable errors must not match
+  assert.ok(!retryableRegex.test("model not found"));
 });

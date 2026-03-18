@@ -100,6 +100,13 @@ let depthVerificationDone = false;
 // Cleared when a model switch occurs or retries are exhausted.
 const networkRetryCounters = new Map<string, number>();
 
+// ── Transient error escalation ───────────────────────────────────────────
+// Tracks consecutive transient auto-resume attempts. Each attempt doubles
+// the delay. After MAX_TRANSIENT_AUTO_RESUMES consecutive failures, auto-mode
+// pauses indefinitely to avoid infinite rapid-fire retries (#1166).
+const MAX_TRANSIENT_AUTO_RESUMES = 5;
+let consecutiveTransientErrors = 0;
+
 export function isDepthVerified(): boolean {
   return depthVerificationDone;
 }
@@ -866,11 +873,31 @@ export default function (pi: ExtensionAPI) {
       const explicitRetryAfterMs = ("retryAfterMs" in lastMsg && typeof lastMsg.retryAfterMs === "number")
         ? lastMsg.retryAfterMs
         : undefined;
-      const retryAfterMs = explicitRetryAfterMs ?? classification.suggestedDelayMs;
+      let retryAfterMs = explicitRetryAfterMs ?? classification.suggestedDelayMs;
+
+      // ── Escalating backoff for repeated transient errors ──────────────
+      // Each consecutive transient auto-resume doubles the delay. After
+      // MAX_TRANSIENT_AUTO_RESUMES consecutive failures, treat as permanent
+      // to avoid infinite rapid-fire retries (#1166).
+      let effectiveTransient = classification.isTransient;
+      if (classification.isTransient) {
+        consecutiveTransientErrors++;
+        if (consecutiveTransientErrors > MAX_TRANSIENT_AUTO_RESUMES) {
+          effectiveTransient = false;
+          ctx.ui.notify(
+            `${consecutiveTransientErrors} consecutive transient errors. Pausing indefinitely — resume manually with /gsd auto.`,
+            "error",
+          );
+          consecutiveTransientErrors = 0;
+        } else {
+          // Escalate: base delay × 2^(consecutive-1) → 30s, 60s, 120s, 240s, 480s
+          retryAfterMs = retryAfterMs * 2 ** (consecutiveTransientErrors - 1);
+        }
+      }
 
       await pauseAutoForProviderError(ctx.ui, errorDetail, () => pauseAuto(ctx, pi), {
         isRateLimit: classification.isRateLimit,
-        isTransient: classification.isTransient,
+        isTransient: effectiveTransient,
         retryAfterMs,
         resume: () => {
           pi.sendMessage(
@@ -884,6 +911,7 @@ export default function (pi: ExtensionAPI) {
 
     try {
       networkRetryCounters.clear(); // Clear network retry state on successful unit completion
+      consecutiveTransientErrors = 0; // Reset escalating backoff on success
       await handleAgentEnd(ctx, pi);
     } catch (err) {
       // Safety net: if handleAgentEnd throws despite its internal try-catch,
