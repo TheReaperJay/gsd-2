@@ -116,6 +116,14 @@ None beyond the plan template issue documented above.
 - The four pre-existing failures (mcp-server.test.ts x3, getRepoInfo x1) are unchanged
 - Phase 3 Plan 03+ can build on this dispatch foundation for production readiness (subscription billing, concurrent limits, etc.)
 
+## Self-Check: PASSED
+
+- FOUND: src/resources/extensions/gsd/auto.ts
+- FOUND: src/resources/extensions/gsd/write-gate.ts
+- FOUND: src/resources/extensions/gsd/claude-code/sdk-executor.ts
+- FOUND: .planning/phases/03-core-dispatch/03-02-SUMMARY.md
+- FOUND: ed3686a (task 1 commit)
+
 ---
 *Phase: 03-core-dispatch*
 *Completed: 2026-03-18*
