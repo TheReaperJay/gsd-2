@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Core Infrastructure** - Build all leaf-node modules (routing, tools, activity writer) and supporting auth/model changes (completed 2026-03-17)
 - [x] **Phase 3: Core Dispatch** - Implement sdk-executor and wire the auto.ts branch; all critical pitfalls addressed here (completed 2026-03-18)
 - [x] **Phase 4: Onboarding & Auth** - Add Claude Code provider to onboarding flow with CLI prerequisite check (completed 2026-03-18)
-- [ ] **Phase 5: Integration & Recovery** - Validate session resume, crash recovery forensics, idle watchdog, and concurrency behavior
+- [x] **Phase 5: Integration & Recovery** - Validate session resume, crash recovery forensics, idle watchdog, and concurrency behavior (completed 2026-03-18)
 
 ## Phase Details
 
@@ -98,7 +98,7 @@ Plans:
   2. Crash recovery detects an incomplete Claude Code unit via lock file and reconstructs forensic context from the `.gsd/activity/` log
   3. The idle watchdog detects a hung Claude Code session via PreToolUse/PostToolUse hook timestamps (using the same timeout thresholds as Pi, configurable via supervisor config) and triggers the existing timeout/recovery path
   4. Two or more parallel GSD workers each running Claude Code units produce correct, non-interleaved activity logs and post-unit pipeline executions
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 05-01-PLAN.md — Fix writeLock for SDK crash recovery + update requirement text
@@ -114,4 +114,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Core Infrastructure | 5/5 | Complete   | 2026-03-17 |
 | 3. Core Dispatch | 3/3 | Complete   | 2026-03-18 |
 | 4. Onboarding & Auth | 1/1 | Complete   | 2026-03-18 |
-| 5. Integration & Recovery | 0/1 | Not started | - |
+| 5. Integration & Recovery | 1/1 | Complete   | 2026-03-18 |
