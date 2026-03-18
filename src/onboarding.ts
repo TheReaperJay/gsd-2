@@ -10,7 +10,7 @@
  * All steps are skippable. All errors are recoverable. Never crashes boot.
  */
 
-import { exec } from 'node:child_process'
+import { exec, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { AuthStorage } from '@gsd/pi-coding-agent'
@@ -75,6 +75,7 @@ const LLM_PROVIDER_IDS = [
   'mistral',
   'ollama-cloud',
   'custom-openai',
+  'claude-code',
 ]
 
 /** API key prefix validation — loose checks to catch obvious mistakes */
@@ -293,6 +294,7 @@ async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStora
   authOptions.push(
     { value: 'browser', label: 'Sign in with your browser', hint: 'recommended — same login as claude.ai / ChatGPT' },
     { value: 'api-key', label: 'Paste an API key', hint: 'from your provider dashboard' },
+    { value: 'cli', label: 'Use local CLI', hint: 'Claude Code — uses your existing subscription' },
     { value: 'skip', label: 'Skip for now', hint: 'use /login inside GSD later' },
   )
 
@@ -337,6 +339,10 @@ async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStora
       : provider === 'openai' ? 'OpenAI'
       : OTHER_PROVIDERS.find(op => op.value === provider)?.label ?? String(provider)
     return await runApiKeyFlow(p, pc, authStorage, provider as string, label)
+  }
+
+  if (method === 'cli') {
+    return await runCliFlow(p, pc, authStorage)
   }
 
   return false
@@ -534,6 +540,108 @@ async function runCustomOpenAIFlow(
   p.log.info(`Model: ${pc.cyan(trimmedModelId)}`)
   p.log.info(`Config written to ${pc.dim(modelsJsonPath)}`)
   return true
+}
+
+// ─── CLI Flow ──────────────────────────────────────────────────────────────────
+
+/**
+ * Pure CLI prerequisite check — verifies claude binary exists and is authenticated.
+ *
+ * Accepts an optional spawnFn for test injection (defaults to real spawnSync).
+ * Returns a discriminated result: { ok: true, email? } or { ok: false, reason }.
+ */
+export function checkClaudeCodeCli(
+  spawnFn: typeof spawnSync = spawnSync,
+): { ok: true; email?: string } | { ok: false; reason: 'not-found' | 'not-authenticated' } {
+  // Step 1: CLI installed?
+  const versionResult = spawnFn('claude', ['--version'], { encoding: 'utf-8' })
+  if (versionResult.error || versionResult.status !== 0) {
+    return { ok: false, reason: 'not-found' }
+  }
+
+  // Step 2: CLI authenticated?
+  const authResult = spawnFn('claude', ['auth', 'status', '--json'], { encoding: 'utf-8' })
+  if (authResult.error || authResult.status !== 0) {
+    return { ok: false, reason: 'not-authenticated' }
+  }
+
+  let loggedIn = false
+  let email: string | undefined
+  try {
+    const parsed = JSON.parse(authResult.stdout)
+    loggedIn = parsed.loggedIn === true
+    email = typeof parsed.email === 'string' ? parsed.email : undefined
+  } catch {
+    // JSON parse failed — treat as not authenticated
+  }
+
+  if (!loggedIn) {
+    return { ok: false, reason: 'not-authenticated' }
+  }
+
+  return email ? { ok: true, email } : { ok: true }
+}
+
+async function runCliFlow(
+  p: ClackModule,
+  pc: PicoModule,
+  authStorage: AuthStorage,
+): Promise<boolean> {
+  const cliProvider = await p.select({
+    message: 'Choose CLI provider',
+    options: [
+      { value: 'claude-code', label: 'Claude Code (Subscription)', hint: 'requires claude CLI installed and logged in' },
+    ],
+  })
+  if (p.isCancel(cliProvider)) return false
+
+  return await runClaudeCodeCliCheck(p, pc, authStorage)
+}
+
+async function runClaudeCodeCliCheck(
+  p: ClackModule,
+  pc: PicoModule,
+  authStorage: AuthStorage,
+): Promise<boolean> {
+  const s = p.spinner()
+  s.start('Checking Claude Code CLI...')
+
+  const result = checkClaudeCodeCli()
+
+  if (!result.ok && result.reason === 'not-found') {
+    s.stop('Claude Code CLI not found')
+    p.log.warn('Claude Code CLI not found. Install it at https://docs.anthropic.com/en/docs/claude-code and try again.')
+    return await offerCliRetry(p, pc, authStorage)
+  }
+
+  if (!result.ok && result.reason === 'not-authenticated') {
+    s.stop('Claude Code CLI is not logged in')
+    p.log.warn("Claude Code CLI is not logged in. Run 'claude auth login' in your terminal, then try again.")
+    return await offerCliRetry(p, pc, authStorage)
+  }
+
+  // Success
+  s.stop('Claude Code CLI verified')
+  const emailInfo = result.ok && result.email ? ` (${result.email})` : ''
+  p.log.success(`Claude Code${emailInfo} ${pc.green('ready')}`)
+  authStorage.set('claude-code', { type: 'claude-code' })
+  return true
+}
+
+async function offerCliRetry(
+  p: ClackModule,
+  pc: PicoModule,
+  authStorage: AuthStorage,
+): Promise<boolean> {
+  const action = await p.select({
+    message: 'What would you like to do?',
+    options: [
+      { value: 'retry', label: 'Retry' },
+      { value: 'different', label: 'Choose a different provider' },
+    ],
+  })
+  if (p.isCancel(action) || action === 'different') return false
+  return runClaudeCodeCliCheck(p, pc, authStorage)
 }
 
 // ─── Web Search Provider Step ─────────────────────────────────────────────────
