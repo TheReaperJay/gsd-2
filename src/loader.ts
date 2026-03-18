@@ -12,24 +12,27 @@ const gsdRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
 const firstArg = args[0]
 
-if (firstArg === '--version' || firstArg === '-v') {
-  try {
-    const pkg = JSON.parse(readFileSync(join(gsdRoot, 'package.json'), 'utf-8'))
-    process.stdout.write((pkg.version || '0.0.0') + '\n')
-  } catch {
-    process.stdout.write('0.0.0\n')
+let _cachedVersion: string | undefined
+function getVersion(): string {
+  if (_cachedVersion === undefined) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(gsdRoot, 'package.json'), 'utf-8'))
+      _cachedVersion = pkg.version || '0.0.0'
+    } catch {
+      _cachedVersion = '0.0.0'
+    }
   }
+  return _cachedVersion as string
+}
+
+if (firstArg === '--version' || firstArg === '-v') {
+  process.stdout.write(getVersion() + '\n')
   process.exit(0)
 }
 
 if (firstArg === '--help' || firstArg === '-h') {
-  let version = '0.0.0'
-  try {
-    const pkg = JSON.parse(readFileSync(join(gsdRoot, 'package.json'), 'utf-8'))
-    version = pkg.version || version
-  } catch { /* ignore */ }
   const { printHelp } = await import('./help-text.js')
-  printHelp(version)
+  printHelp(getVersion())
   process.exit(0)
 }
 
@@ -58,15 +61,10 @@ if (!existsSync(appRoot)) {
   const dim   = '\x1b[2m'
   const reset = '\x1b[0m'
   const colorCyan = (s: string) => `${cyan}${s}${reset}`
-  let version = ''
-  try {
-    const pkgJson = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf-8'))
-    version = pkgJson.version ?? ''
-  } catch { /* ignore */ }
   process.stderr.write(
     renderLogo(colorCyan) +
     '\n' +
-    `  Get Shit Done ${dim}v${version}${reset}\n` +
+    `  Get Shit Done ${dim}v${getVersion()}${reset}\n` +
     `  ${green}Welcome.${reset} Setting up your environment...\n\n`
   )
 }
@@ -89,12 +87,7 @@ const { Module } = await import('module');
 (Module as any)._initPaths?.()
 
 // GSD_VERSION — expose package version so extensions can display it
-try {
-  const gsdPkg = JSON.parse(readFileSync(join(gsdRoot, 'package.json'), 'utf-8'))
-  process.env.GSD_VERSION = gsdPkg.version || '0.0.0'
-} catch {
-  process.env.GSD_VERSION = '0.0.0'
-}
+process.env.GSD_VERSION = getVersion()
 
 // GSD_BIN_PATH — absolute path to this loader (dist/loader.js), used by patched subagent
 // to spawn gsd instead of pi when dispatching workflow tasks
