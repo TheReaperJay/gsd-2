@@ -2,8 +2,9 @@
  * Remote Questions — Discord adapter
  */
 
-import { PER_REQUEST_TIMEOUT_MS, type ChannelAdapter, type RemotePrompt, type RemoteDispatchResult, type RemoteAnswer, type RemotePromptRef } from "./types.js";
+import { type ChannelAdapter, type RemotePrompt, type RemoteDispatchResult, type RemoteAnswer, type RemotePromptRef } from "./types.js";
 import { formatForDiscord, parseDiscordResponse, DISCORD_NUMBER_EMOJIS } from "./format.js";
+import { apiRequest } from "./http-client.js";
 
 const DISCORD_API = "https://discord.com/api/v10";
 
@@ -137,23 +138,11 @@ export class DiscordAdapter implements ChannelAdapter {
     return parseDiscordResponse([], String(replies[0].content), prompt.questions);
   }
 
-  private async discordApi(method: string, path: string, body?: unknown): Promise<any> {
-    const headers: Record<string, string> = { Authorization: `Bot ${this.token}` };
-    const init: RequestInit = { method, headers };
-    if (body) {
-      headers["Content-Type"] = "application/json";
-      init.body = JSON.stringify(body);
-    }
-
-    init.signal = AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS);
-    const response = await fetch(`${DISCORD_API}${path}`, init);
-    if (response.status === 204) return {};
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      // Limit error body length to avoid leaking verbose Discord error responses
-      const safeText = text.length > 200 ? text.slice(0, 200) + "…" : text;
-      throw new Error(`Discord API HTTP ${response.status}: ${safeText}`);
-    }
-    return response.json();
+  private async discordApi(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<any> {
+    return apiRequest(`${DISCORD_API}${path}`, method, body, {
+      authScheme: "Bot",
+      authToken: this.token,
+      errorLabel: "Discord API",
+    });
   }
 }

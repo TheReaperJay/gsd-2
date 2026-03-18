@@ -2,8 +2,9 @@
  * Remote Questions — Telegram adapter
  */
 
-import { PER_REQUEST_TIMEOUT_MS, type ChannelAdapter, type RemotePrompt, type RemoteDispatchResult, type RemoteAnswer, type RemotePromptRef } from "./types.js";
+import { type ChannelAdapter, type RemotePrompt, type RemoteDispatchResult, type RemoteAnswer, type RemotePromptRef } from "./types.js";
 import { formatForTelegram, parseTelegramResponse } from "./format.js";
+import { apiRequest } from "./http-client.js";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
@@ -138,23 +139,11 @@ export class TelegramAdapter implements ChannelAdapter {
   }
 
   private async telegramApi(method: string, params?: Record<string, unknown>): Promise<any> {
-    const url = `${TELEGRAM_API}/bot${this.token}/${method}`;
-    const init: RequestInit = {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
-    };
-
-    if (params) {
-      init.body = JSON.stringify(params);
-    }
-
-    const response = await fetch(url, init);
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      const safeText = text.length > 200 ? text.slice(0, 200) + "…" : text;
-      throw new Error(`Telegram API HTTP ${response.status}: ${safeText}`);
-    }
-    return response.json();
+    return apiRequest(
+      `${TELEGRAM_API}/bot${this.token}/${method}`,
+      "POST",
+      params,
+      { errorLabel: "Telegram API" },
+    );
   }
 }
