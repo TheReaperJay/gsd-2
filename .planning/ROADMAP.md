@@ -94,11 +94,14 @@ Plans:
 **Depends on**: Phase 3, Phase 4
 **Requirements**: EXEC-05, OBS-03, OBS-04
 **Success Criteria** (what must be TRUE):
-  1. An interrupted Claude Code unit resumes from its SDK session ID on retry rather than restarting from scratch
+  1. An interrupted Claude Code unit resumes with forensic context from the activity log on retry (same mechanism as Pi path)
   2. Crash recovery detects an incomplete Claude Code unit via lock file and reconstructs forensic context from the `.gsd/activity/` log
-  3. The idle watchdog detects a hung Claude Code session via PreToolUse/PostToolUse hooks and SDKToolProgressMessage elapsed_time_seconds (using the same timeout thresholds as Pi, configurable) and triggers the existing timeout/recovery path
+  3. The idle watchdog detects a hung Claude Code session via PreToolUse/PostToolUse hook timestamps (using the same timeout thresholds as Pi, configurable via supervisor config) and triggers the existing timeout/recovery path
   4. Two or more parallel GSD workers each running Claude Code units produce correct, non-interleaved activity logs and post-unit pipeline executions
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 05-01-PLAN.md — Fix writeLock for SDK crash recovery + update requirement text
 
 ## Progress
 
@@ -111,4 +114,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Core Infrastructure | 5/5 | Complete   | 2026-03-17 |
 | 3. Core Dispatch | 3/3 | Complete   | 2026-03-18 |
 | 4. Onboarding & Auth | 1/1 | Complete   | 2026-03-18 |
-| 5. Integration & Recovery | 0/TBD | Not started | - |
+| 5. Integration & Recovery | 0/1 | Not started | - |
