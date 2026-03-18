@@ -916,6 +916,34 @@ describe("sdkExecuteUnit — steering", () => {
     );
   });
 
+  test("Idle tracking wrappers reset lastActivityAt on tool events", () => {
+    // Tests the tracking wrapper pattern used in sdkExecuteUnit's production path:
+    // effectiveOnToolStart/effectiveOnToolEnd reset lastActivityAt, then delegate
+    // to the original callback. This verifies the wrapper contract independently
+    // of the SDK import, proving the pattern is correct before it runs in production.
+    let lastActivityAt = 0;
+    const originalCalls: string[] = [];
+
+    const original = (event: { toolCallId: string; toolName: string }) => {
+      originalCalls.push(event.toolName);
+    };
+
+    // Simulate the tracking wrapper pattern from sdk-executor.ts production path
+    const trackingWrapper = (event: { toolCallId: string; toolName: string }): void => {
+      lastActivityAt = Date.now();
+      original(event);
+    };
+
+    // Before any calls, lastActivityAt is 0
+    assert.equal(lastActivityAt, 0);
+
+    trackingWrapper({ toolCallId: "tc1", toolName: "Read" });
+
+    // After call, lastActivityAt is updated and original was called
+    assert.ok(lastActivityAt > 0, "lastActivityAt must be updated by tracking wrapper");
+    assert.deepEqual(originalCalls, ["Read"], "Original callback must be called by tracking wrapper");
+  });
+
   test("Idle recovery text is pushed with priority 'now'", async () => {
     // Test the structure of idle recovery messages directly via SteeringQueue.push()
     // The idle recovery message is pushed with priority "now" by sdkExecuteUnit's

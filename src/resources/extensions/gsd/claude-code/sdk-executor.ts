@@ -326,6 +326,12 @@ export async function sdkExecuteUnit(
   let modelAlias: string;
   let tierConfig: SdkModelConfig;
 
+  // lastActivityAt is declared here so the production-path tracking wrappers
+  // (passed to createHookBridge) and the idle watchdog setInterval share the
+  // same variable. The idle watchdog block only sets up the interval — it does
+  // not redeclare this variable.
+  let lastActivityAt = Date.now();
+
   if (_deps) {
     // Test path — all deps injected
     ({ query, activityWriter, hookBridge, mcpServer, modelAlias, tierConfig } = _deps);
@@ -342,9 +348,23 @@ export async function sdkExecuteUnit(
 
     query = sdk.query as SdkExecutorDeps["query"];
     activityWriter = new SdkActivityWriter(basePath, unitType, unitId);
+
+    // ── Idle activity tracking ───────────────────────────────────────────────
+    // When idle timeout is active, wrap tool callbacks to reset idle clock.
+    // These wrappers are passed to createHookBridge() so that every PreToolUse
+    // and PostToolUse/PostToolUseFailure event resets lastActivityAt.
+    // The shared lastActivityAt (declared above) is read by the idle watchdog
+    // setInterval to determine whether the agent has been active recently.
+    const effectiveOnToolStart: typeof onToolStart = idleTimeoutMs > 0
+      ? (event) => { lastActivityAt = Date.now(); onToolStart(event); }
+      : onToolStart;
+    const effectiveOnToolEnd: typeof onToolEnd = idleTimeoutMs > 0
+      ? (event) => { lastActivityAt = Date.now(); onToolEnd(event); }
+      : onToolEnd;
+
     hookBridge = createHookBridge({
-      onToolStart,
-      onToolEnd,
+      onToolStart: effectiveOnToolStart,
+      onToolEnd: effectiveOnToolEnd,
       shouldBlockContextWrite,
       getMilestoneId,
       isDepthVerified,
@@ -449,28 +469,9 @@ export async function sdkExecuteUnit(
 
   // Set up idle watchdog interval (replicates auto.ts lines 2891-2949)
   // The watchdog fires every 15 seconds and pushes idle recovery steering when idle.
+  // lastActivityAt is reset by effectiveOnToolStart/effectiveOnToolEnd wired into
+  // the hook bridge on the production path, so tool activity prevents spurious firing.
   if (idleTimeoutMs > 0) {
-    let lastActivityAt = Date.now();
-
-    // Track activity via tool start/end events by wrapping the callbacks
-    const origOnToolStart = onToolStart;
-    const origOnToolEnd = onToolEnd;
-    const trackingOnToolStart = (event: GsdToolEvent): void => {
-      lastActivityAt = Date.now();
-      origOnToolStart(event);
-    };
-    const trackingOnToolEnd = (event: GsdToolEvent): void => {
-      lastActivityAt = Date.now();
-      origOnToolEnd(event);
-    };
-
-    // Override hook bridge to use tracking callbacks
-    // Note: This is a simplified idle watchdog — production would use
-    // readUnitRuntimeRecord() like auto.ts does. For the SDK path the
-    // basic timestamp tracking is sufficient.
-    void trackingOnToolStart; // Used by hook bridge via params in production path
-    void trackingOnToolEnd;
-
     idleWatchdogHandle = setInterval(() => {
       const idleMs = Date.now() - lastActivityAt;
       if (idleMs < idleTimeoutMs) return;
