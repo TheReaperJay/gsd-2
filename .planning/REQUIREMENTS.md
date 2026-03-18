@@ -14,7 +14,7 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 - [x] **EXEC-03**: SDK errors (max_turns_reached, error_during_execution, error_max_budget_usd) map to GSD error handling and model fallback logic
 - [x] **EXEC-04**: User can cancel a running Claude Code unit via AbortController wired to stopAuto()
 - [ ] **EXEC-05**: Interrupted Claude Code units can resume via SDK session ID on retry
-- [x] **EXEC-06**: Each unit type has a configurable maxTurns limit to bound execution length
+- [x] **EXEC-06**: Each unit type's execution length is bounded by time-based supervision (soft/idle/hard timeouts via steering channel and Stop hook) rather than SDK maxTurns
 
 ### Custom Tools
 
