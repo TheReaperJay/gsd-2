@@ -42,6 +42,15 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 - [x] **SUP-03**: Steering channel (AsyncIterable prompt with priority hints) enables mid-execution wrapup warnings and focus redirects — matching Pi's sendMessage steering
 - [x] **SUP-04**: SDK Stop hook enables GSD to block premature completion — matching Pi's agent loop continuation control
 
+### Provider Integration
+
+- [ ] **PROV-01**: Pi's agent loop supports provider-managed tool execution — `provider_tool_start`/`provider_tool_end` stream events trigger `tool_execution_start`/`tool_execution_end` AgentEvents without calling `tool.execute()`
+- [ ] **PROV-02**: SDK streaming events (`BetaRawMessageStreamEvent` from `includePartialMessages: true`) are translated to Pi's `AssistantMessageEventStream` format using the same raw Anthropic event types the existing Anthropic provider handles
+- [ ] **PROV-03**: Claude-code is registered as a Pi provider via `modelRegistry.registerProvider()` with 3 models (opus, sonnet, haiku), a `streamSimple` implementation, and availability gated by `authStorage.hasAuth("claude-code")`
+- [ ] **PROV-04**: Onboarding sets default model/provider after storing claude-code credential — TUI boots and shows claude-code models without "No model selected" error
+- [ ] **PROV-05**: The bolt-on SDK dispatch branch in `auto.ts` is removed — all providers dispatch through Pi's standard agent loop → streamSimple pipeline
+- [ ] **PROV-06**: TUI displays real-time streaming text and tool execution visibility during Claude Code SDK sessions, matching the experience of other Pi providers
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -54,8 +63,8 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Feature | Reason |
 |---------|--------|
-| Pi core modifications | Integration is additive only — no changes to pi-ai or pi-agent-core |
-| Provider-level integration (streamSimple) | SDK is an agent, not inference endpoint — architecturally incompatible |
+| ~~Pi core modifications~~ | ~~Integration is additive only~~ — RESCINDED: pi-agent-core is vendored, provider-managed tool execution requires agent loop changes (Phase 6) |
+| ~~Provider-level integration (streamSimple)~~ | ~~SDK is an agent, not inference endpoint~~ — RESCINDED: `includePartialMessages: true` yields raw Anthropic streaming events, same format Pi already translates (Phase 6) |
 | Non-Anthropic providers via Claude Code | Claude Code is Anthropic-only |
 | Claude Code system prompt preset | GSD is the orchestrator; its prompts define agent behavior |
 | CLAUDE.md loading via SDK settingSources | Would inject conflicting instructions |
@@ -87,10 +96,16 @@ Deferred to future release. Tracked but not in current roadmap.
 | SUP-02 | Phase 2 | Complete |
 | SUP-03 | Phase 3 | Complete |
 | SUP-04 | Phase 3 | Complete |
+| PROV-01 | Phase 6 | Planned |
+| PROV-02 | Phase 6 | Planned |
+| PROV-03 | Phase 6 | Planned |
+| PROV-04 | Phase 6 | Planned |
+| PROV-05 | Phase 6 | Planned |
+| PROV-06 | Phase 6 | Planned |
 
 **Coverage:**
-- v1 requirements: 20 total
-- Mapped to phases: 20
+- v1 requirements: 26 total
+- Mapped to phases: 26
 - Unmapped: 0
 
 ---

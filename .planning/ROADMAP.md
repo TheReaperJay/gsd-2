@@ -17,6 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Core Dispatch** - Implement sdk-executor and wire the auto.ts branch; all critical pitfalls addressed here (completed 2026-03-18)
 - [x] **Phase 4: Onboarding & Auth** - Add Claude Code provider to onboarding flow with CLI prerequisite check (completed 2026-03-18)
 - [x] **Phase 5: Integration & Recovery** - Validate session resume, crash recovery forensics, idle watchdog, and concurrency behavior (completed 2026-03-18)
+- [ ] **Phase 6: Provider Integration** - Register claude-code as proper Pi provider with model registry, SDK event translation, provider-managed tool execution, remove bolt-on dispatch
 
 ## Phase Details
 
@@ -106,7 +107,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -115,3 +116,24 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. Core Dispatch | 3/3 | Complete   | 2026-03-18 |
 | 4. Onboarding & Auth | 1/1 | Complete   | 2026-03-18 |
 | 5. Integration & Recovery | 1/1 | Complete   | 2026-03-18 |
+| 6. Provider Integration | 0/5 | Planned    | — |
+
+### Phase 6: Provider Integration
+**Goal**: Claude Code is a fully registered Pi provider — models appear in the registry, the TUI boots, dispatch goes through Pi's standard provider pipeline with full streaming and tool visibility, and the bolt-on auto.ts interception is removed
+**Depends on**: Phase 3, Phase 4, Phase 5
+**Requirements**: PROV-01, PROV-02, PROV-03, PROV-04, PROV-05, PROV-06
+**Success Criteria** (what must be TRUE):
+  1. Pi's agent loop supports `provider_tool_start`/`provider_tool_end` events — when a stream provider reports tool execution, the agent loop emits `tool_execution_start`/`tool_execution_end` to the TUI and skips its own `tool.execute()` for those calls
+  2. A `streamSimple` implementation translates SDK `BetaRawMessageStreamEvent` (from `includePartialMessages: true`) to Pi's `AssistantMessageEventStream` using the same raw Anthropic event format the existing Anthropic provider handles
+  3. `modelRegistry.registerProvider("claude-code", ...)` registers 3 models (opus, sonnet, haiku) with correct specs, a `streamSimple` that routes through the Claude Agent SDK, and `authStorage.hasAuth("claude-code")` gates availability
+  4. Onboarding sets `setDefaultModelAndProvider("claude-code", "claude-sonnet-4-6")` after storing the credential — the TUI boots and shows claude-code models in `/model`
+  5. The SDK dispatch branch in `auto.ts dispatchNextUnit()` and the SDK cancellation in `stopAuto()` are removed — dispatch flows through Pi's normal agent loop → streamSimple pipeline for all providers
+  6. GSD auto-mode dispatches a unit through the claude-code provider, the TUI shows streaming text and tool calls, and the post-unit pipeline runs on completion
+**Plans:** 0/5 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Pi agent core: provider-managed tool execution events
+- [ ] 06-02-PLAN.md — Stream adapter: SDK event translation to Pi format
+- [ ] 06-03-PLAN.md — Model registration + onboarding fix
+- [ ] 06-04-PLAN.md — Remove bolt-on dispatch + cleanup
+- [ ] 06-05-PLAN.md — End-to-end verification

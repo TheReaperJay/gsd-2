@@ -94,6 +94,7 @@
     "hosted-git-info": "^9.0.2",
     "ignore": "^7.0.5",
     "marked": "^15.0.12",
+    "mcporter": "^0.7.3",
     "mime-types": "^3.0.1",
     "minimatch": "^10.2.3",
     "openai": "6.26.0",

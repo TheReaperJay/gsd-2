@@ -109,6 +109,10 @@ Recent decisions affecting current work:
 - [Phase 05-integration-recovery]: writeLock for SDK dispatch stores no sessionFile in LockData — synthesizeCrashRecovery falls through to readLastActivityLog when sessionFile is undefined
 - [Phase 05-integration-recovery]: EXEC-05 requirement text updated from SDK session ID to forensic context from activity log; OBS-04 updated to remove SDKToolProgressMessage elapsed_time_seconds reference
 
+### Roadmap Evolution
+
+- Phase 6 added: Provider Integration — register claude-code as proper Pi provider with model registry, stream adapter translating SDK events to Pi format, provider-managed tool execution in agent loop, remove bolt-on auto.ts dispatch
+
 ### Pending Todos
 
 None yet.
