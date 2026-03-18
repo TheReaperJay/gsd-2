@@ -9,12 +9,12 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 
 ### Execution Backend
 
-- [ ] **EXEC-01**: Subscription user can dispatch GSD units (research/plan/execute/complete) through Claude Agent SDK `query()` instead of Pi's agent loop
+- [x] **EXEC-01**: Subscription user can dispatch GSD units (research/plan/execute/complete) through Claude Agent SDK `query()` instead of Pi's agent loop
 - [x] **EXEC-02**: Post-unit pipeline (commit, doctor, state rebuild, artifact verify, completion key) runs identically on both Pi and Claude Code paths via shared function
-- [ ] **EXEC-03**: SDK errors (max_turns_reached, error_during_execution, error_max_budget_usd) map to GSD error handling and model fallback logic
+- [x] **EXEC-03**: SDK errors (max_turns_reached, error_during_execution, error_max_budget_usd) map to GSD error handling and model fallback logic
 - [ ] **EXEC-04**: User can cancel a running Claude Code unit via AbortController wired to stopAuto()
 - [ ] **EXEC-05**: Interrupted Claude Code units can resume via SDK session ID on retry
-- [ ] **EXEC-06**: Each unit type has a configurable maxTurns limit to bound execution length
+- [x] **EXEC-06**: Each unit type has a configurable maxTurns limit to bound execution length
 
 ### Custom Tools
 
@@ -39,8 +39,8 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 
 - [x] **SUP-01**: SDK PreToolUse/PostToolUse hooks provide real-time per-tool progress to TUI (tool name, file path, command) — matching Pi's tool_call/tool_result event visibility
 - [x] **SUP-02**: Effort/thinking level mapping from GSD complexity classifier to SDK `thinking`/`effort` options
-- [ ] **SUP-03**: Steering channel (AsyncIterable prompt with priority hints) enables mid-execution wrapup warnings and focus redirects — matching Pi's sendMessage steering
-- [ ] **SUP-04**: SDK Stop hook enables GSD to block premature completion — matching Pi's agent loop continuation control
+- [x] **SUP-03**: Steering channel (AsyncIterable prompt with priority hints) enables mid-execution wrapup warnings and focus redirects — matching Pi's sendMessage steering
+- [x] **SUP-04**: SDK Stop hook enables GSD to block premature completion — matching Pi's agent loop continuation control
 
 ## v2 Requirements
 
@@ -67,12 +67,12 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EXEC-01 | Phase 3 | Pending |
+| EXEC-01 | Phase 3 | Complete |
 | EXEC-02 | Phase 1 | Complete |
-| EXEC-03 | Phase 3 | Pending |
+| EXEC-03 | Phase 3 | Complete |
 | EXEC-04 | Phase 3 | Pending |
 | EXEC-05 | Phase 5 | Pending |
-| EXEC-06 | Phase 3 | Pending |
+| EXEC-06 | Phase 3 | Complete |
 | TOOL-01 | Phase 2 | Complete |
 | TOOL-02 | Phase 2 | Complete |
 | AUTH-01 | Phase 4 | Pending |
@@ -85,8 +85,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | OBS-04 | Phase 5 | Pending |
 | SUP-01 | Phase 2 | Complete |
 | SUP-02 | Phase 2 | Complete |
-| SUP-03 | Phase 3 | Pending |
-| SUP-04 | Phase 3 | Pending |
+| SUP-03 | Phase 3 | Complete |
+| SUP-04 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 20 total

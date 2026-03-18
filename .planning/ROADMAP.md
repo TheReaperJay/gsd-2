@@ -69,7 +69,7 @@ Plans:
   6. Steering channel (AsyncIterable with priority hints) delivers wrapup warnings and focus redirects at turn boundaries, matching Pi's sendMessage steering behavior
   7. SDK Stop hook prevents premature completion when GSD determines the unit isn't done, matching Pi's agent loop continuation control
   8. TUI shows per-tool progress during Claude Code execution identically to Pi execution (tool name, file path, command via hook bridge from Phase 2)
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 03-01-PLAN.md — SDK executor: SteeringQueue + sdkExecuteUnit() with steering, stop hook, error mapping (TDD)
@@ -105,6 +105,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Pipeline Extraction | 1/1 | Complete   | 2026-03-17 |
 | 2. Core Infrastructure | 5/5 | Complete   | 2026-03-17 |
-| 3. Core Dispatch | 0/2 | Not started | - |
+| 3. Core Dispatch | 1/2 | In Progress|  |
 | 4. Onboarding & Auth | 0/TBD | Not started | - |
 | 5. Integration & Recovery | 0/TBD | Not started | - |

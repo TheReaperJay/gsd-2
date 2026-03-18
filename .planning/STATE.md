@@ -6,14 +6,14 @@ current_phase: 1
 current_phase_name: Pipeline Extraction
 current_plan: 1
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-03-18T04:25:07.927Z"
-last_activity: 2026-03-17
+stopped_at: Completed 03-core-dispatch 03-01-PLAN.md
+last_updated: "2026-03-18T05:11:52.737Z"
+last_activity: 2026-03-18
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
   percent: 0
 ---
 
@@ -35,10 +35,10 @@ Total Phases: 5
 Current Plan: 1
 Total Plans in Phase: 1
 Status: In progress
-Last Activity: 2026-03-17
-Last session: 2026-03-18T04:25:07.925Z
-Stopped At: Phase 3 context gathered
-Resume File: .planning/phases/03-core-dispatch/03-CONTEXT.md
+Last Activity: 2026-03-18
+Last session: 2026-03-18T05:11:52.734Z
+Stopped At: Completed 03-core-dispatch 03-01-PLAN.md
+Resume File: None
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02-core-infrastructure P05 | 7 | 1 tasks | 2 files |
 | Phase 02-core-infrastructure P03 | 6min | 1 tasks | 2 files |
 | Phase 02-core-infrastructure P01 | 14min | 2 tasks | 6 files |
+| Phase 03-core-dispatch P01 | 13min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,10 @@ Recent decisions affecting current work:
 - [Phase 02-core-infrastructure]: ClaudeCodeCredential.set() uses simple replace semantics — only one claude-code credential makes sense
 - [Phase 02-core-infrastructure]: resolveProviderRouting accepts AuthStorage instance directly for in-memory testing without temp files
 - [Phase 02-core-infrastructure]: register-ts.mjs uses --experimental-transform-types due to TypeScript parameter properties in FileAuthStorageBackend
+- [Phase 03-core-dispatch]: sdkExecuteUnit accepts optional _deps parameter for test injection — avoids dynamic import() mocking
+- [Phase 03-core-dispatch]: SteeringQueue.close() called in finally block only — not in response to intermediate events (Pitfall 2 prevention)
+- [Phase 03-core-dispatch]: Stop hook checks stop_hook_active before blocking — never blocks on second fire (Pitfall 3 prevention)
+- [Phase 03-core-dispatch]: try/finally added to SteeringQueue generator to clean up pending resolve refs on consumer .return()
 
 ### Pending Todos
 
