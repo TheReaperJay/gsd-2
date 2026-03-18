@@ -65,15 +65,16 @@ Plans:
   2. The post-unit pipeline runs exactly once per unit completion, regardless of whether the unit succeeded or errored
   3. SDK error subtypes (max_turns_reached, error_during_execution, error_max_budget_usd) map to the correct GSD error handling branches and trigger model fallback where applicable
   4. User can cancel a running Claude Code unit via `stopAuto()` using interrupt() (graceful) → close() (forceful) escalation, with no orphaned lock files
-  5. Each unit type (research, plan, execute, complete) respects its configured `maxTurns` limit
+  5. Each unit type's execution length is bounded by time-based supervision (soft/idle/hard timeouts via steering + Stop hook)
   6. Steering channel (AsyncIterable with priority hints) delivers wrapup warnings and focus redirects at turn boundaries, matching Pi's sendMessage steering behavior
   7. SDK Stop hook prevents premature completion when GSD determines the unit isn't done, matching Pi's agent loop continuation control
   8. TUI shows per-tool progress during Claude Code execution identically to Pi execution (tool name, file path, command via hook bridge from Phase 2)
-**Plans:** 2/2 plans complete
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 03-01-PLAN.md — SDK executor: SteeringQueue + sdkExecuteUnit() with steering, stop hook, error mapping (TDD)
 - [x] 03-02-PLAN.md — Wire auto.ts dispatch branch and stopAuto() cancellation
+- [ ] 03-03-PLAN.md — Gap closure: wire idle tracking wrappers into hook bridge + update EXEC-06 requirement text
 
 ### Phase 4: Onboarding & Auth
 **Goal**: A new user can select Claude Code as their provider during GSD onboarding and be guided through the CLI prerequisite check before any execution is attempted
@@ -105,6 +106,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Pipeline Extraction | 1/1 | Complete   | 2026-03-17 |
 | 2. Core Infrastructure | 5/5 | Complete   | 2026-03-17 |
-| 3. Core Dispatch | 2/2 | Complete    | 2026-03-18 |
+| 3. Core Dispatch | 3/3 | Complete   | 2026-03-18 |
 | 4. Onboarding & Auth | 0/TBD | Not started | - |
 | 5. Integration & Recovery | 0/TBD | Not started | - |

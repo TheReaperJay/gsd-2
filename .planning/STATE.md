@@ -6,14 +6,14 @@ current_phase: 1
 current_phase_name: Pipeline Extraction
 current_plan: 1
 status: executing
-stopped_at: Completed 03-core-dispatch 03-02-PLAN.md
-last_updated: "2026-03-18T05:22:55.906Z"
+stopped_at: Completed 03-core-dispatch-03-03-PLAN.md
+last_updated: "2026-03-18T08:33:44.405Z"
 last_activity: 2026-03-18
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 9
+  completed_plans: 9
   percent: 0
 ---
 
@@ -36,8 +36,8 @@ Current Plan: 1
 Total Plans in Phase: 1
 Status: In progress
 Last Activity: 2026-03-18
-Last session: 2026-03-18T05:22:55.904Z
-Stopped At: Completed 03-core-dispatch 03-02-PLAN.md
+Last session: 2026-03-18T08:33:44.402Z
+Stopped At: Completed 03-core-dispatch-03-03-PLAN.md
 Resume File: None
 
 Progress: [░░░░░░░░░░] 0%
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02-core-infrastructure P01 | 14min | 2 tasks | 6 files |
 | Phase 03-core-dispatch P01 | 13min | 2 tasks | 2 files |
 | Phase 03-core-dispatch PP02 | 10min | 2 tasks | 4 files |
+| Phase 03-core-dispatch P03 | 4min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,8 @@ Recent decisions affecting current work:
 - [Phase 03-core-dispatch]: shouldBlockContextWrite extracted to write-gate.ts to break circular import between auto.ts and index.ts (both now import from write-gate)
 - [Phase 03-core-dispatch]: SDK branch is early return after model selection — Pi supervision timers never reached on SDK path (Pitfall 1 prevention)
 - [Phase 03-core-dispatch]: isDepthVerified passes () => true for SDK auto-mode path — depth gate is a discussion-phase feature, auto task execution is always post-discussion
+- [Phase 03-core-dispatch]: lastActivityAt declared at function scope before if (_deps) block — tracking wrappers and setInterval share the same variable
+- [Phase 03-core-dispatch]: EXEC-06 requirement text updated to time-based supervision via steering+Stop hook — ROADMAP.md item 5 already used correct wording
 
 ### Pending Todos
 
