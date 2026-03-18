@@ -13,7 +13,7 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 - [x] **EXEC-02**: Post-unit pipeline (commit, doctor, state rebuild, artifact verify, completion key) runs identically on both Pi and Claude Code paths via shared function
 - [x] **EXEC-03**: SDK errors (max_turns_reached, error_during_execution, error_max_budget_usd) map to GSD error handling and model fallback logic
 - [x] **EXEC-04**: User can cancel a running Claude Code unit via AbortController wired to stopAuto()
-- [ ] **EXEC-05**: Interrupted Claude Code units can resume via SDK session ID on retry
+- [x] **EXEC-05**: Interrupted Claude Code units resume with forensic context from activity log on retry (same mechanism as Pi path)
 - [x] **EXEC-06**: Each unit type's execution length is bounded by time-based supervision (soft/idle/hard timeouts via steering channel and Stop hook) rather than SDK maxTurns
 
 ### Custom Tools
@@ -32,8 +32,8 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 
 - [x] **OBS-01**: SDK streaming output is captured to `.gsd/activity/` log in existing activity log format (translated from SDK events, not a new format)
 - [x] **OBS-02**: Per-unit cost is accumulated from SDK result messages and reported in GSD metrics
-- [ ] **OBS-03**: Crash recovery detects incomplete Claude Code units via lock file and falls back to activity log for forensics
-- [ ] **OBS-04**: Idle watchdog detects hung Claude Code sessions via PreToolUse/PostToolUse hooks and SDKToolProgressMessage elapsed_time_seconds
+- [x] **OBS-03**: Crash recovery detects incomplete Claude Code units via lock file and falls back to activity log for forensics
+- [x] **OBS-04**: Idle watchdog detects hung Claude Code sessions via PreToolUse/PostToolUse hook timestamps (same timeout thresholds as Pi, configurable via supervisor config)
 
 ### Supervision & Parity
 
@@ -71,7 +71,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | EXEC-02 | Phase 1 | Complete |
 | EXEC-03 | Phase 3 | Complete |
 | EXEC-04 | Phase 3 | Complete |
-| EXEC-05 | Phase 5 | Pending |
+| EXEC-05 | Phase 5 | Complete |
 | EXEC-06 | Phase 3 | Complete |
 | TOOL-01 | Phase 2 | Complete |
 | TOOL-02 | Phase 2 | Complete |
@@ -81,8 +81,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | AUTH-04 | Phase 2 | Complete |
 | OBS-01 | Phase 2 | Complete |
 | OBS-02 | Phase 2 | Complete |
-| OBS-03 | Phase 5 | Pending |
-| OBS-04 | Phase 5 | Pending |
+| OBS-03 | Phase 5 | Complete |
+| OBS-04 | Phase 5 | Complete |
 | SUP-01 | Phase 2 | Complete |
 | SUP-02 | Phase 2 | Complete |
 | SUP-03 | Phase 3 | Complete |
