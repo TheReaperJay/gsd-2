@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Pipeline Extraction** - Extract post-unit pipeline into shared function; prevents state corruption before any new dispatch code is written (completed 2026-03-17)
 - [x] **Phase 2: Core Infrastructure** - Build all leaf-node modules (routing, tools, activity writer) and supporting auth/model changes (completed 2026-03-17)
-- [ ] **Phase 3: Core Dispatch** - Implement sdk-executor and wire the auto.ts branch; all critical pitfalls addressed here
+- [x] **Phase 3: Core Dispatch** - Implement sdk-executor and wire the auto.ts branch; all critical pitfalls addressed here (completed 2026-03-18)
 - [ ] **Phase 4: Onboarding & Auth** - Add Claude Code provider to onboarding flow with CLI prerequisite check
 - [ ] **Phase 5: Integration & Recovery** - Validate session resume, crash recovery forensics, idle watchdog, and concurrency behavior
 
@@ -69,11 +69,11 @@ Plans:
   6. Steering channel (AsyncIterable with priority hints) delivers wrapup warnings and focus redirects at turn boundaries, matching Pi's sendMessage steering behavior
   7. SDK Stop hook prevents premature completion when GSD determines the unit isn't done, matching Pi's agent loop continuation control
   8. TUI shows per-tool progress during Claude Code execution identically to Pi execution (tool name, file path, command via hook bridge from Phase 2)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 03-01-PLAN.md — SDK executor: SteeringQueue + sdkExecuteUnit() with steering, stop hook, error mapping (TDD)
-- [ ] 03-02-PLAN.md — Wire auto.ts dispatch branch and stopAuto() cancellation
+- [x] 03-01-PLAN.md — SDK executor: SteeringQueue + sdkExecuteUnit() with steering, stop hook, error mapping (TDD)
+- [x] 03-02-PLAN.md — Wire auto.ts dispatch branch and stopAuto() cancellation
 
 ### Phase 4: Onboarding & Auth
 **Goal**: A new user can select Claude Code as their provider during GSD onboarding and be guided through the CLI prerequisite check before any execution is attempted
@@ -105,6 +105,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Pipeline Extraction | 1/1 | Complete   | 2026-03-17 |
 | 2. Core Infrastructure | 5/5 | Complete   | 2026-03-17 |
-| 3. Core Dispatch | 1/2 | In Progress|  |
+| 3. Core Dispatch | 2/2 | Complete    | 2026-03-18 |
 | 4. Onboarding & Auth | 0/TBD | Not started | - |
 | 5. Integration & Recovery | 0/TBD | Not started | - |
