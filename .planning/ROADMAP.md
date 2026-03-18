@@ -84,7 +84,10 @@ Plans:
   1. "Claude Code (Subscription)" appears as a selectable provider option in the GSD onboarding flow
   2. Selecting Claude Code triggers a prerequisite check that verifies the `claude` CLI is installed and authenticated; the user sees a clear error message if either check fails
   3. Completing onboarding with Claude Code selected writes a `type: "claude-code"` credential to auth storage (no token stored)
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 04-01-PLAN.md — Add Claude Code CLI provider to onboarding with two-step prerequisite verification
 
 ### Phase 5: Integration & Recovery
 **Goal**: The full Claude Code execution path is validated under real conditions — interrupted units resume correctly, crash recovery reads activity logs for forensics, the idle watchdog detects hung sessions, and parallel workers do not corrupt each other
@@ -107,5 +110,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Pipeline Extraction | 1/1 | Complete   | 2026-03-17 |
 | 2. Core Infrastructure | 5/5 | Complete   | 2026-03-17 |
 | 3. Core Dispatch | 3/3 | Complete   | 2026-03-18 |
-| 4. Onboarding & Auth | 0/TBD | Not started | - |
+| 4. Onboarding & Auth | 0/1 | Not started | - |
 | 5. Integration & Recovery | 0/TBD | Not started | - |
