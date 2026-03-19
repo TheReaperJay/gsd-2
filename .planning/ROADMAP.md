@@ -124,7 +124,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 **Requirements**: PROV-01, PROV-02, PROV-03, PROV-04, PROV-05, PROV-06
 **Success Criteria** (what must be TRUE):
   1. Pi's agent loop supports `provider_tool_start`/`provider_tool_end` events — when a stream provider reports tool execution, the agent loop emits `tool_execution_start`/`tool_execution_end` to the TUI and skips its own `tool.execute()` for those calls
-  2. A `streamSimple` implementation translates SDK `BetaRawMessageStreamEvent` (from `includePartialMessages: true`) to Pi's `AssistantMessageEventStream` using the same raw Anthropic event format the existing Anthropic provider handles
+  2. A `streamSimple` implementation wraps the entire SDK `query()` session as a single `AssistantMessageEventStream` — SDK hook events (PreToolUse/PostToolUse) are translated to `provider_tool_start`/`provider_tool_end`, and the final SDK turn's text content is emitted as standard text events
   3. `modelRegistry.registerProvider("claude-code", ...)` registers 3 models (opus, sonnet, haiku) with correct specs, a `streamSimple` that routes through the Claude Agent SDK, and `authStorage.hasAuth("claude-code")` gates availability
   4. Onboarding sets `setDefaultModelAndProvider("claude-code", "claude-code:claude-opus-4-6")` after storing the credential — the TUI boots and shows claude-code models in `/model`
   5. The SDK dispatch branch in `auto.ts dispatchNextUnit()` and the SDK cancellation in `stopAuto()` are removed — dispatch flows through Pi's normal agent loop → streamSimple pipeline for all providers
