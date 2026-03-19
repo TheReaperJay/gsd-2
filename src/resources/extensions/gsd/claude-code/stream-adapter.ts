@@ -16,7 +16,7 @@
  *   internally — callers see only the Pi stream
  * - Activity writer captures all turns for crash recovery JSONL
  *
- * Critical invariants (same as sdk-executor.ts):
+ * Critical invariants:
  * - Pitfall 2: steeringQueue.close() called in finally block
  * - Pitfall 3: Stop hook checks stop_hook_active before blocking (no infinite loop)
  * - Pitfall 6: persistSession: false (no accumulating session history)
@@ -28,8 +28,6 @@ import type { Api, Model, Context, SimpleStreamOptions, AssistantMessage, TextCo
 import { createAssistantMessageEventStream } from "@gsd/pi-ai";
 import { SteeringQueue, WRAPUP_WARNING_TEXT } from "./steering-queue.js";
 import type { SdkUserMessage } from "./steering-queue.js";
-import { createHookBridge } from "./hook-bridge.js";
-import type { GsdToolEvent } from "./hook-bridge.js";
 import { SdkActivityWriter } from "./activity-writer.js";
 import { createGsdMcpServer } from "./mcp-tools.js";
 import type { AssistantMessageEventStream } from "@gsd/pi-ai";
@@ -44,10 +42,140 @@ declare module "@gsd/pi-ai" {
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+/** GSD tool event shape emitted by the hook bridge. */
+interface GsdToolEvent {
+  toolCallId: string;
+  toolName: string;
+  input?: unknown;
+  isError?: boolean;
+}
+
 /** Hook result — empty object means proceed; { continue: false } blocks. */
 interface HookResult {
   continue?: false;
   stopReason?: string;
+}
+
+/** Hook bridge configuration — all side-effecting operations are injected. */
+interface HookBridgeConfig {
+  onToolStart: (event: GsdToolEvent) => void;
+  onToolEnd: (event: GsdToolEvent) => void;
+  shouldBlockContextWrite: (
+    toolName: string,
+    inputPath: string,
+    milestoneId: string | null,
+    depthVerified: boolean,
+  ) => { block: boolean; reason?: string };
+  getMilestoneId: () => string | null;
+  isDepthVerified: () => boolean;
+}
+
+/** SDK hook arrays in the format Options.hooks expects. */
+interface HookBridgeOutput {
+  PreToolUse: Array<{ hooks: Array<(input: unknown) => Promise<HookResult>> }>;
+  PostToolUse: Array<{ hooks: Array<(input: unknown) => Promise<HookResult>> }>;
+  PostToolUseFailure: Array<{ hooks: Array<(input: unknown) => Promise<HookResult>> }>;
+}
+
+/**
+ * Create SDK-compatible hook configuration that translates PreToolUse/PostToolUse/PostToolUseFailure
+ * events into GSD's internal tool event format.
+ */
+function createHookBridge(config: HookBridgeConfig): HookBridgeOutput {
+  return {
+    PreToolUse: [
+      {
+        hooks: [
+          async (rawInput: unknown): Promise<HookResult> => {
+            const input = rawInput as {
+              hook_event_name: string;
+              tool_name: string;
+              tool_input: unknown;
+              tool_use_id: string;
+            };
+
+            if (input.hook_event_name !== "PreToolUse") return {};
+
+            config.onToolStart({
+              toolCallId: input.tool_use_id,
+              toolName: input.tool_name,
+              input: input.tool_input,
+            });
+
+            if (input.tool_name === "Write" || input.tool_name === "Edit") {
+              const toolInput = input.tool_input as Record<string, unknown> | null | undefined;
+              const filePath =
+                (typeof toolInput?.file_path === "string" ? toolInput.file_path : undefined) ??
+                (typeof toolInput?.path === "string" ? toolInput.path : undefined) ??
+                "";
+
+              const result = config.shouldBlockContextWrite(
+                input.tool_name.toLowerCase(),
+                filePath,
+                config.getMilestoneId(),
+                config.isDepthVerified(),
+              );
+
+              if (result.block) {
+                return { continue: false, stopReason: result.reason };
+              }
+            }
+
+            return {};
+          },
+        ],
+      },
+    ],
+
+    PostToolUse: [
+      {
+        hooks: [
+          async (rawInput: unknown): Promise<HookResult> => {
+            const input = rawInput as {
+              hook_event_name: string;
+              tool_name: string;
+              tool_use_id: string;
+            };
+
+            if (input.hook_event_name !== "PostToolUse") return {};
+
+            config.onToolEnd({
+              toolCallId: input.tool_use_id,
+              toolName: input.tool_name,
+              isError: false,
+            });
+
+            return {};
+          },
+        ],
+      },
+    ],
+
+    PostToolUseFailure: [
+      {
+        hooks: [
+          async (rawInput: unknown): Promise<HookResult> => {
+            const input = rawInput as {
+              hook_event_name: string;
+              tool_name: string;
+              tool_use_id: string;
+            };
+
+            if (input.hook_event_name !== "PostToolUseFailure") return {};
+
+            // CRITICAL: Must clear inFlightTools on failure too (Pitfall 4 prevention).
+            config.onToolEnd({
+              toolCallId: input.tool_use_id,
+              toolName: input.tool_name,
+              isError: true,
+            });
+
+            return {};
+          },
+        ],
+      },
+    ],
+  };
 }
 
 /** Stop hook input shape from SDK. */
