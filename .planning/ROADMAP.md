@@ -116,7 +116,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Core Dispatch | 3/3 | Complete   | 2026-03-18 |
 | 4. Onboarding & Auth | 1/1 | Complete   | 2026-03-18 |
 | 5. Integration & Recovery | 1/1 | Complete   | 2026-03-18 |
-| 6. Provider Integration | 1/5 | In Progress|  |
+| 6. Provider Integration | 2/5 | In Progress|  |
 
 ### Phase 6: Provider Integration
 **Goal**: Claude Code is a fully registered Pi provider — models appear in the registry, the TUI boots, dispatch goes through Pi's standard provider pipeline with full streaming and tool visibility, and the bolt-on auto.ts interception is removed
@@ -129,7 +129,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
   4. Onboarding sets `setDefaultModelAndProvider("claude-code", "claude-code:claude-opus-4-6")` after storing the credential — the TUI boots and shows claude-code models in `/model`
   5. The SDK dispatch branch in `auto.ts dispatchNextUnit()` and the SDK cancellation in `stopAuto()` are removed — dispatch flows through Pi's normal agent loop → streamSimple pipeline for all providers
   6. GSD auto-mode dispatches a unit through the claude-code provider, the TUI shows streaming text and tool calls, and the post-unit pipeline runs on completion
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 - [ ] 06-01-PLAN.md — Pi agent core: provider-managed tool execution events + ProviderModelData extensibility
