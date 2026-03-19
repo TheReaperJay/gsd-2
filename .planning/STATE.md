@@ -6,14 +6,14 @@ current_phase: 1
 current_phase_name: Pipeline Extraction
 current_plan: 1
 status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-03-19T07:50:16.051Z"
-last_activity: 2026-03-18
+stopped_at: Completed 06-provider-integration plan 06-01-PLAN.md
+last_updated: "2026-03-19T08:50:09.531Z"
+last_activity: 2026-03-19
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 16
+  completed_plans: 12
   percent: 0
 ---
 
@@ -35,10 +35,10 @@ Total Phases: 5
 Current Plan: 1
 Total Plans in Phase: 1
 Status: In progress
-Last Activity: 2026-03-18
-Last session: 2026-03-19T07:50:16.048Z
-Stopped At: Phase 6 context gathered
-Resume File: .planning/phases/06-provider-integration/06-CONTEXT.md
+Last Activity: 2026-03-19
+Last session: 2026-03-19T08:50:09.529Z
+Stopped At: Completed 06-provider-integration plan 06-01-PLAN.md
+Resume File: None
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -71,6 +71,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03-core-dispatch P03 | 4min | 2 tasks | 3 files |
 | Phase 04-onboarding-auth P01 | 5min | 2 tasks | 2 files |
 | Phase 05-integration-recovery P01 | 6min | 2 tasks | 3 files |
+| Phase 06-provider-integration P01 | 18min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,9 @@ Recent decisions affecting current work:
 - [Phase 04-onboarding-auth]: offerCliRetry uses recursive call pattern matching runOAuthFlow() — consistent retry UX across all auth failure flows
 - [Phase 05-integration-recovery]: writeLock for SDK dispatch stores no sessionFile in LockData — synthesizeCrashRecovery falls through to readLastActivityLog when sessionFile is undefined
 - [Phase 05-integration-recovery]: EXEC-05 requirement text updated from SDK session ID to forensic context from activity log; OBS-04 updated to remove SDKToolProgressMessage elapsed_time_seconds reference
+- [Phase 06-provider-integration]: provider_tool_start/end have no partial field — stream-only signals that bypass message lifecycle, correct because provider tool execution is opaque to Pi
+- [Phase 06-provider-integration]: ProviderModelData is empty interface extensible via declaration merging — providers add typed metadata without modifying core pi-ai type files
+- [Phase 06-provider-integration]: providerData NOT added to parseModels/ModelDefinitionSchema (models.json path) — user-facing config format; provider metadata injected programmatically via registerProvider only
 
 ### Roadmap Evolution
 

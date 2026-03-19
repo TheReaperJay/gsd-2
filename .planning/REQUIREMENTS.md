@@ -44,7 +44,7 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 
 ### Provider Integration
 
-- [ ] **PROV-01**: Pi's agent loop supports provider-managed tool execution — `provider_tool_start`/`provider_tool_end` stream events trigger `tool_execution_start`/`tool_execution_end` AgentEvents without calling `tool.execute()`
+- [x] **PROV-01**: Pi's agent loop supports provider-managed tool execution — `provider_tool_start`/`provider_tool_end` stream events trigger `tool_execution_start`/`tool_execution_end` AgentEvents without calling `tool.execute()`
 - [ ] **PROV-02**: The `streamSimple` implementation wraps the entire SDK `query()` session as a single `AssistantMessageEventStream` — SDK hook events (PreToolUse/PostToolUse) are translated to `provider_tool_start`/`provider_tool_end`, and the final SDK turn's text content is emitted as standard text events
 - [ ] **PROV-03**: Claude-code is registered as a Pi provider via `modelRegistry.registerProvider()` with 3 models (opus, sonnet, haiku), a `streamSimple` implementation, and availability gated by `authStorage.hasAuth("claude-code")`
 - [ ] **PROV-04**: Onboarding sets default model/provider after storing claude-code credential — TUI boots and shows claude-code models without "No model selected" error
