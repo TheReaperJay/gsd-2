@@ -346,6 +346,25 @@ async function streamAssistantResponse(
 				}
 				break;
 
+			case "provider_tool_start":
+				stream.push({
+					type: "tool_execution_start",
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+				});
+				break;
+
+			case "provider_tool_end":
+				stream.push({
+					type: "tool_execution_end",
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					result: event.result,
+					isError: event.isError,
+				});
+				break;
+
 			case "done":
 			case "error": {
 				const finalMessage = await response.result();

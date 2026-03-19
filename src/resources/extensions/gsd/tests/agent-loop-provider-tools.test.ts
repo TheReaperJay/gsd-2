@@ -4,7 +4,7 @@
  * Verifies that provider_tool_start and provider_tool_end events on the
  * AssistantMessageEventStream are translated to tool_execution_start and
  * tool_execution_end AgentEvents by the agent loop. The partial message must
- * NOT be updated by these events.
+ * NOT be updated by these events (no message_update emitted for them).
  */
 
 import test from "node:test";
@@ -17,6 +17,7 @@ import type {
   AgentEvent,
   AgentLoopConfig,
   AgentMessage,
+  StreamFn,
 } from "@gsd/pi-agent-core";
 import type { AssistantMessage, Model } from "@gsd/pi-ai";
 
@@ -39,10 +40,10 @@ function makeModel(): Model<"anthropic"> {
   };
 }
 
-function makePartialAssistantMessage(model: Model<"anthropic">): AssistantMessage {
+function makeAssistantMessage(model: Model<"anthropic">): AssistantMessage {
   return {
     role: "assistant",
-    content: [{ type: "text", text: "" }],
+    content: [{ type: "text", text: "Done." }],
     api: model.api,
     provider: model.provider,
     model: model.id,
@@ -59,29 +60,27 @@ function makePartialAssistantMessage(model: Model<"anthropic">): AssistantMessag
   };
 }
 
-function makeConfig(
-  model: Model<"anthropic">,
-  streamFn: AgentLoopConfig["streamSimple"],
-): AgentLoopConfig {
+function makeConfig(model: Model<"anthropic">): AgentLoopConfig {
   return {
     model,
     convertToLlm: (messages: AgentMessage[]) =>
       messages.filter(
         (m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult",
       ),
-    streamSimple: streamFn,
   };
 }
 
 function makeContext(): AgentContext {
   return {
     systemPrompt: "You are a test assistant.",
-    messages: [{ role: "user", content: [{ type: "text", text: "Hello" }], timestamp: Date.now() }],
+    messages: [
+      { role: "user", content: [{ type: "text", text: "Hello" }], timestamp: Date.now() },
+    ],
   };
 }
 
 /**
- * Collect all AgentEvents from a stream until agent_end.
+ * Collect all AgentEvents from the agent loop stream until agent_end.
  */
 async function collectEvents(
   stream: ReturnType<typeof agentLoop>,
@@ -100,26 +99,24 @@ async function collectEvents(
 
 test("provider_tool_start event produces tool_execution_start AgentEvent", async () => {
   const model = makeModel();
-  const partial = makePartialAssistantMessage(model);
-  const final = { ...partial, content: [{ type: "text", text: "Done." }] } as AssistantMessage;
+  const finalMessage = makeAssistantMessage(model);
 
-  const mockStream = new AssistantMessageEventStream();
-
-  const streamFn = async () => {
-    mockStream.push({ type: "start", partial });
+  const streamFn: StreamFn = async () => {
+    const mockStream = new AssistantMessageEventStream();
+    mockStream.push({ type: "start", partial: { ...finalMessage, content: [] } });
     mockStream.push({
       type: "provider_tool_start",
       toolCallId: "call-123",
       toolName: "bash",
       args: { command: "ls" },
     });
-    mockStream.push({ type: "done", reason: "stop", message: final });
+    mockStream.push({ type: "done", reason: "stop", message: finalMessage });
     return mockStream;
   };
 
   const context = makeContext();
-  const config = makeConfig(model, streamFn);
-  const loop = agentLoop([], context, config);
+  const config = makeConfig(model);
+  const loop = agentLoop([], context, config, undefined, streamFn);
 
   const events = await collectEvents(loop);
 
@@ -135,13 +132,11 @@ test("provider_tool_start event produces tool_execution_start AgentEvent", async
 
 test("provider_tool_end event produces tool_execution_end AgentEvent", async () => {
   const model = makeModel();
-  const partial = makePartialAssistantMessage(model);
-  const final = { ...partial } as AssistantMessage;
+  const finalMessage = makeAssistantMessage(model);
 
-  const mockStream = new AssistantMessageEventStream();
-
-  const streamFn = async () => {
-    mockStream.push({ type: "start", partial });
+  const streamFn: StreamFn = async () => {
+    const mockStream = new AssistantMessageEventStream();
+    mockStream.push({ type: "start", partial: { ...finalMessage, content: [] } });
     mockStream.push({
       type: "provider_tool_end",
       toolCallId: "call-456",
@@ -149,13 +144,13 @@ test("provider_tool_end event produces tool_execution_end AgentEvent", async () 
       result: { content: "file contents" },
       isError: false,
     });
-    mockStream.push({ type: "done", reason: "stop", message: final });
+    mockStream.push({ type: "done", reason: "stop", message: finalMessage });
     return mockStream;
   };
 
   const context = makeContext();
-  const config = makeConfig(model, streamFn);
-  const loop = agentLoop([], context, config);
+  const config = makeConfig(model);
+  const loop = agentLoop([], context, config, undefined, streamFn);
 
   const events = await collectEvents(loop);
 
@@ -172,13 +167,11 @@ test("provider_tool_end event produces tool_execution_end AgentEvent", async () 
 
 test("provider_tool events do not emit message_update", async () => {
   const model = makeModel();
-  const partial = makePartialAssistantMessage(model);
-  const final = { ...partial } as AssistantMessage;
+  const finalMessage = makeAssistantMessage(model);
 
-  const mockStream = new AssistantMessageEventStream();
-
-  const streamFn = async () => {
-    mockStream.push({ type: "start", partial });
+  const streamFn: StreamFn = async () => {
+    const mockStream = new AssistantMessageEventStream();
+    mockStream.push({ type: "start", partial: { ...finalMessage, content: [] } });
     mockStream.push({
       type: "provider_tool_start",
       toolCallId: "call-789",
@@ -192,13 +185,13 @@ test("provider_tool events do not emit message_update", async () => {
       result: ["file1.ts", "file2.ts"],
       isError: false,
     });
-    mockStream.push({ type: "done", reason: "stop", message: final });
+    mockStream.push({ type: "done", reason: "stop", message: finalMessage });
     return mockStream;
   };
 
   const context = makeContext();
-  const config = makeConfig(model, streamFn);
-  const loop = agentLoop([], context, config);
+  const config = makeConfig(model);
+  const loop = agentLoop([], context, config, undefined, streamFn);
 
   const events = await collectEvents(loop);
 
@@ -212,13 +205,11 @@ test("provider_tool events do not emit message_update", async () => {
 
 test("provider tool events can appear between start and done without breaking stream", async () => {
   const model = makeModel();
-  const partial = makePartialAssistantMessage(model);
-  const final = { ...partial, content: [{ type: "text", text: "All tools done." }] } as AssistantMessage;
+  const finalMessage = makeAssistantMessage(model);
 
-  const mockStream = new AssistantMessageEventStream();
-
-  const streamFn = async () => {
-    mockStream.push({ type: "start", partial });
+  const streamFn: StreamFn = async () => {
+    const mockStream = new AssistantMessageEventStream();
+    mockStream.push({ type: "start", partial: { ...finalMessage, content: [] } });
     mockStream.push({
       type: "provider_tool_start",
       toolCallId: "call-aaa",
@@ -245,20 +236,20 @@ test("provider tool events can appear between start and done without breaking st
       result: null,
       isError: true,
     });
-    mockStream.push({ type: "done", reason: "stop", message: final });
+    mockStream.push({ type: "done", reason: "stop", message: finalMessage });
     return mockStream;
   };
 
   const context = makeContext();
-  const config = makeConfig(model, streamFn);
-  const loop = agentLoop([], context, config);
+  const config = makeConfig(model);
+  const loop = agentLoop([], context, config, undefined, streamFn);
 
   const events = await collectEvents(loop);
 
   // Stream completes without error
   assert.ok(events.some((e) => e.type === "agent_end"), "agent_end should be emitted");
 
-  // Two pairs of tool events
+  // Two pairs of tool execution events
   const startEvents = events.filter((e) => e.type === "tool_execution_start");
   const endEvents = events.filter((e) => e.type === "tool_execution_end");
   assert.equal(startEvents.length, 2, "two tool_execution_start events expected");
@@ -266,7 +257,8 @@ test("provider tool events can appear between start and done without breaking st
 
   // Second end event has isError: true
   const errEvent = endEvents.find(
-    (e) => (e as Extract<AgentEvent, { type: "tool_execution_end" }>).isError === true,
+    (e) =>
+      (e as Extract<AgentEvent, { type: "tool_execution_end" }>).isError === true,
   );
   assert.ok(errEvent, "one tool_execution_end should have isError: true");
 });
