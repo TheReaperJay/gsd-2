@@ -126,14 +126,14 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
   1. Pi's agent loop supports `provider_tool_start`/`provider_tool_end` events — when a stream provider reports tool execution, the agent loop emits `tool_execution_start`/`tool_execution_end` to the TUI and skips its own `tool.execute()` for those calls
   2. A `streamSimple` implementation translates SDK `BetaRawMessageStreamEvent` (from `includePartialMessages: true`) to Pi's `AssistantMessageEventStream` using the same raw Anthropic event format the existing Anthropic provider handles
   3. `modelRegistry.registerProvider("claude-code", ...)` registers 3 models (opus, sonnet, haiku) with correct specs, a `streamSimple` that routes through the Claude Agent SDK, and `authStorage.hasAuth("claude-code")` gates availability
-  4. Onboarding sets `setDefaultModelAndProvider("claude-code", "claude-sonnet-4-6")` after storing the credential — the TUI boots and shows claude-code models in `/model`
+  4. Onboarding sets `setDefaultModelAndProvider("claude-code", "claude-code:claude-opus-4-6")` after storing the credential — the TUI boots and shows claude-code models in `/model`
   5. The SDK dispatch branch in `auto.ts dispatchNextUnit()` and the SDK cancellation in `stopAuto()` are removed — dispatch flows through Pi's normal agent loop → streamSimple pipeline for all providers
   6. GSD auto-mode dispatches a unit through the claude-code provider, the TUI shows streaming text and tool calls, and the post-unit pipeline runs on completion
-**Plans:** 0/5 plans
+**Plans:** 5 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Pi agent core: provider-managed tool execution events
-- [ ] 06-02-PLAN.md — Stream adapter: SDK event translation to Pi format
-- [ ] 06-03-PLAN.md — Model registration + onboarding fix
-- [ ] 06-04-PLAN.md — Remove bolt-on dispatch + cleanup
-- [ ] 06-05-PLAN.md — End-to-end verification
+- [ ] 06-01-PLAN.md — Pi agent core: provider-managed tool execution events + ProviderModelData extensibility
+- [ ] 06-02-PLAN.md — Stream adapter: SDK event translation to Pi format + SteeringQueue extraction
+- [ ] 06-03-PLAN.md — Model registration + onboarding default model fix
+- [ ] 06-04-PLAN.md — Remove bolt-on dispatch + delete replaced modules
+- [ ] 06-05-PLAN.md — End-to-end verification + human TUI check
