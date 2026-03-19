@@ -6,14 +6,14 @@ current_phase: 1
 current_phase_name: Pipeline Extraction
 current_plan: 1
 status: executing
-stopped_at: Completed 06-provider-integration plan 06-03-PLAN.md
-last_updated: "2026-03-19T09:18:08.331Z"
+stopped_at: Completed 06-provider-integration plan 06-04-PLAN.md
+last_updated: "2026-03-19T09:25:57.495Z"
 last_activity: 2026-03-19
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 0
 ---
 
@@ -36,8 +36,8 @@ Current Plan: 1
 Total Plans in Phase: 1
 Status: In progress
 Last Activity: 2026-03-19
-Last session: 2026-03-19T09:18:08.329Z
-Stopped At: Completed 06-provider-integration plan 06-03-PLAN.md
+Last session: 2026-03-19T09:25:57.492Z
+Stopped At: Completed 06-provider-integration plan 06-04-PLAN.md
 Resume File: None
 
 Progress: [░░░░░░░░░░] 0%
@@ -74,6 +74,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06-provider-integration P01 | 18min | 2 tasks | 5 files |
 | Phase 06-provider-integration P02 | 13min | 3 tasks | 4 files |
 | Phase 06-provider-integration PP03 | 7min | 2 tasks | 4 files |
+| Phase 06-provider-integration PP04 | 15min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,7 @@ Recent decisions affecting current work:
 - [Phase 06-provider-integration]: StreamAdapterDeps uses getter callbacks (getUnitInfo, getBasePath, getIsUnitDone) called per invocation not captured at factory creation time
 - [Phase 06-provider-integration]: stream-adapter-state.ts is a neutral module owning per-dispatch mutable state — auto.ts writes setters, index.ts wires getters into StreamAdapterDeps callbacks, no circular import
 - [Phase 06-provider-integration]: SettingsManager.create(agentDir) called inline in runClaudeCodeCliCheck rather than passing settingsManager as parameter — onboarding runs once, instantiation cost negligible
+- [Phase 06-provider-integration]: Hook bridge logic inlined into stream-adapter.ts — hook-bridge.ts was deletion target and stream-adapter.ts was its only surviving consumer; inlining cleanest structural move
 
 ### Roadmap Evolution
 
