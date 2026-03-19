@@ -44,7 +44,15 @@ import {
   resolveAllSkillReferences,
   resolveModelWithFallbacksForUnit,
   getNextFallbackModel,
+  resolveAutoSupervisorConfig,
 } from "./preferences.js";
+import { createClaudeCodeStream } from "./claude-code/stream-adapter.js";
+import type { StreamAdapterDeps } from "./claude-code/stream-adapter.js";
+import {
+  getStreamAdapterUnitInfo,
+  getStreamAdapterBasePath,
+  getStreamAdapterIsUnitDone,
+} from "./claude-code/stream-adapter-state.js";
 import { hasSkillSnapshot, detectNewSkills, formatSkillsXml } from "./skill-discovery.js";
 import {
   resolveSlicePath, resolveSliceFile, resolveTaskFile, resolveTaskFiles, resolveTasksDir,
@@ -891,6 +899,66 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_execution_end", async (event) => {
     markToolEnd(event.toolCallId);
+  });
+
+  // ── Claude Code provider registration ────────────────────────────────────────
+  // Register claude-code as a Pi provider when the extension initializes.
+  // Availability is automatically gated by authStorage.hasAuth("claude-code")
+  // in the model registry's getAvailable() method.
+
+  const streamAdapterDeps: StreamAdapterDeps = {
+    getSupervisorConfig: resolveAutoSupervisorConfig,
+    shouldBlockContextWrite: (toolName, inputPath, milestoneId, depthVerified) =>
+      shouldBlockContextWrite(toolName, inputPath, milestoneId, depthVerified),
+    getMilestoneId: () => getDiscussionMilestoneId(),
+    isDepthVerified: () => true, // Auto-mode runs post-discussion; depth always verified
+    getIsUnitDone: () => getStreamAdapterIsUnitDone(),
+    onToolStart: (toolCallId) => markToolStart(toolCallId),
+    onToolEnd: (toolCallId) => markToolEnd(toolCallId),
+    getBasePath: () => getStreamAdapterBasePath(),
+    getUnitInfo: () => getStreamAdapterUnitInfo(),
+  };
+
+  pi.registerProvider("claude-code", {
+    api: "claude-code",
+    baseUrl: "claude-code:", // placeholder — streamSimple does not use it
+    apiKey: "claude-code",   // placeholder — auth is CLI-based
+    streamSimple: createClaudeCodeStream(streamAdapterDeps),
+    models: [
+      {
+        id: "claude-code:claude-opus-4-6",
+        name: "Claude Opus 4.6",
+        api: "claude-code",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 32000,
+        providerData: { 'claude-code': { sdkAlias: 'opus' } },
+      },
+      {
+        id: "claude-code:claude-sonnet-4-6",
+        name: "Claude Sonnet 4.6",
+        api: "claude-code",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 16000,
+        providerData: { 'claude-code': { sdkAlias: 'sonnet' } },
+      },
+      {
+        id: "claude-code:claude-haiku-4-5",
+        name: "Claude Haiku 4.5",
+        api: "claude-code",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 8096,
+        providerData: { 'claude-code': { sdkAlias: 'haiku' } },
+      },
+    ],
   });
 }
 
