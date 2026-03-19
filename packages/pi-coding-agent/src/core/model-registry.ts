@@ -13,6 +13,7 @@ import {
 	type OAuthProviderInterface,
 	type OpenAICompletionsCompat,
 	type OpenAIResponsesCompat,
+	type ProviderModelData,
 	registerApiProvider,
 	resetApiProviders,
 	type SimpleStreamOptions,
@@ -650,6 +651,7 @@ export class ModelRegistry {
 					maxTokens: modelDef.maxTokens,
 					headers,
 					compat: modelDef.compat,
+					providerData: modelDef.providerData,
 				} as Model<Api>);
 			}
 
@@ -799,5 +801,6 @@ export interface ProviderConfigInput {
 		maxTokens: number;
 		headers?: Record<string, string>;
 		compat?: Model<Api>["compat"];
+		providerData?: ProviderModelData;
 	}>;
 }
