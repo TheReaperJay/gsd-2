@@ -14,6 +14,7 @@ import { exec, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { AuthStorage } from '@gsd/pi-coding-agent'
+import { SettingsManager } from '@gsd/pi-coding-agent'
 import { renderLogo } from './logo.js'
 import { agentDir } from './app-paths.js'
 
@@ -625,6 +626,8 @@ async function runClaudeCodeCliCheck(
   const emailInfo = result.ok && result.email ? ` (${result.email})` : ''
   p.log.success(`Claude Code${emailInfo} ${pc.green('ready')}`)
   authStorage.set('claude-code', { type: 'claude-code' })
+  // Set default model to Claude Opus 4.6 so the TUI boots without "No model selected"
+  SettingsManager.create(agentDir).setDefaultModelAndProvider('claude-code', 'claude-code:claude-opus-4-6')
   return true
 }
 
