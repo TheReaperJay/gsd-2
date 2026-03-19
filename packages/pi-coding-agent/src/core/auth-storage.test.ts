@@ -308,11 +308,11 @@ describe("AuthStorage — claude-code credential type", () => {
 		assert.equal(storage.hasAuth("claude-code"), true);
 	});
 
-	it("getApiKey() returns undefined for claude-code type (no API key)", async () => {
+	it("getApiKey() returns sentinel for claude-code type (SDK manages its own auth)", async () => {
 		const storage = inMemory({});
 		storage.set("claude-code", { type: "claude-code" } as import("./auth-storage.js").ClaudeCodeCredential);
 		const key = await storage.getApiKey("claude-code");
-		assert.equal(key, undefined);
+		assert.equal(key, "claude-code-sdk-managed");
 	});
 
 	it("list() includes 'claude-code' after set()", () => {

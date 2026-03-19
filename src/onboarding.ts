@@ -621,8 +621,9 @@ async function runClaudeCodeCliCheck(
     return await offerCliRetry(p, pc, authStorage)
   }
 
-  // Success
+  // Success — CLI found and authenticated
   s.stop('Claude Code CLI verified')
+
   const emailInfo = result.ok && result.email ? ` (${result.email})` : ''
   p.log.success(`Claude Code${emailInfo} ${pc.green('ready')}`)
   authStorage.set('claude-code', { type: 'claude-code' })

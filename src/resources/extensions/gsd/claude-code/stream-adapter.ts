@@ -26,11 +26,12 @@
 
 import type { Api, Model, Context, SimpleStreamOptions, AssistantMessage, TextContent } from "@gsd/pi-ai";
 import { createAssistantMessageEventStream } from "@gsd/pi-ai";
+import type { AssistantMessageEventStream } from "@gsd/pi-ai";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { SteeringQueue, WRAPUP_WARNING_TEXT } from "./steering-queue.js";
 import type { SdkUserMessage } from "./steering-queue.js";
 import { SdkActivityWriter } from "./activity-writer.js";
 import { createGsdMcpServer } from "./mcp-tools.js";
-import type { AssistantMessageEventStream } from "@gsd/pi-ai";
 
 // ─── ProviderModelData augmentation ─────────────────────────────────────────
 
@@ -392,6 +393,7 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
           permissionMode: "bypassPermissions" as const,
           allowDangerouslySkipPermissions: true,
           persistSession: false,
+          includePartialMessages: true,
           // NOTE: maxTurns is intentionally NOT set — GSD uses time-based supervision
           // via the steering channel. Setting maxTurns would conflict with the locked
           // decision to use soft/idle/hard timeouts only.
@@ -465,24 +467,11 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
           }, hardTimeoutMs);
         }
 
-        // ── Import SDK dynamically ─────────────────────────────────────────────
-        // Optional dependency — fails at call time with clear install instruction
-        const sdk = await import("@anthropic-ai/claude-agent-sdk").catch(() => {
-          throw new Error(
-            "Claude Code provider requires @anthropic-ai/claude-agent-sdk.\n" +
-            "Run: npm install @anthropic-ai/claude-agent-sdk",
-          );
-        });
-        const query = sdk.query as (params: {
-          prompt: AsyncIterable<SdkUserMessage>;
-          options?: Record<string, unknown>;
-        }) => AsyncIterable<unknown> & {
-          interrupt?: () => Promise<void>;
-          close?: () => void;
-        };
+        // ── Emit start BEFORE query loop (same as streamAnthropic) ────────────
+        stream.push({ type: "start", partial: output });
 
-        // Track the last assistant message — only its text blocks go into Pi stream
-        let lastAssistantMsg: Record<string, unknown> | null = null;
+        // Track current text content block index for streaming deltas
+        let activeContentIndex = -1;
 
         queryObj = query({
           prompt: steeringQueue,
@@ -492,14 +481,45 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
         for await (const msg of queryObj) {
           const sdkMsg = msg as Record<string, unknown>;
 
-          if (sdkMsg["type"] === "assistant") {
-            // Capture session_id from first assistant message for steering pushes
+          if (sdkMsg["type"] === "stream_event") {
+            // SDK streaming event — contains BetaRawMessageStreamEvent
+            const event = sdkMsg["event"] as Record<string, unknown> | undefined;
+            if (!event) continue;
+
+            const eventType = event["type"] as string;
+
+            if (eventType === "content_block_start") {
+              const contentBlock = event["content_block"] as Record<string, unknown> | undefined;
+              if (contentBlock?.["type"] === "text") {
+                const textBlock: TextContent = { type: "text", text: "" };
+                output.content.push(textBlock);
+                activeContentIndex = output.content.length - 1;
+                stream.push({ type: "text_start", contentIndex: activeContentIndex, partial: output });
+              }
+            } else if (eventType === "content_block_delta") {
+              const delta = event["delta"] as Record<string, unknown> | undefined;
+              if (delta?.["type"] === "text_delta" && activeContentIndex >= 0) {
+                const text = String(delta["text"] ?? "");
+                const block = output.content[activeContentIndex];
+                if (block && block.type === "text") {
+                  block.text += text;
+                }
+                stream.push({ type: "text_delta", contentIndex: activeContentIndex, delta: text, partial: output });
+              }
+            } else if (eventType === "content_block_stop") {
+              if (activeContentIndex >= 0) {
+                const block = output.content[activeContentIndex];
+                const text = block && block.type === "text" ? block.text : "";
+                stream.push({ type: "text_end", contentIndex: activeContentIndex, content: text, partial: output });
+                activeContentIndex = -1;
+              }
+            }
+          } else if (sdkMsg["type"] === "assistant") {
+            // Full assistant turn message — capture session_id, feed activity writer
             if (sessionId === null && typeof sdkMsg["session_id"] === "string") {
               sessionId = sdkMsg["session_id"];
             }
             activityWriter.processAssistantMessage(sdkMsg);
-            // Track the last assistant message — used to extract final text content
-            lastAssistantMsg = sdkMsg;
           } else if (sdkMsg["type"] === "user") {
             // Extract tool results from user message content blocks
             const innerMsg = sdkMsg["message"] as Record<string, unknown> | undefined;
@@ -538,28 +558,11 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
           }
         }
 
-        // ── Emit text events from the final assistant message ──────────────────
-        // Emit start first, then the final message's text content as stream events,
-        // then done. Only text blocks from the last assistant message are emitted.
-        // Intermediate turns are visible via provider_tool events from hooks.
-        stream.push({ type: "start", partial: output });
-
-        if (lastAssistantMsg !== null) {
-          const innerMsg = lastAssistantMsg["message"] as Record<string, unknown> | undefined;
-          const rawContent = innerMsg?.["content"];
-          if (Array.isArray(rawContent)) {
-            for (const block of rawContent as Record<string, unknown>[]) {
-              if (block["type"] === "text") {
-                const text = String(block["text"] ?? "");
-                const textBlock: TextContent = { type: "text", text };
-                output.content.push(textBlock);
-                const contentIndex = output.content.length - 1;
-                stream.push({ type: "text_start", contentIndex, partial: output });
-                stream.push({ type: "text_delta", contentIndex, delta: text, partial: output });
-                stream.push({ type: "text_end", contentIndex, content: text, partial: output });
-              }
-            }
-          }
+        // ── Close any unclosed text block ──────────────────────────────────────
+        if (activeContentIndex >= 0) {
+          const block = output.content[activeContentIndex];
+          const text = block && block.type === "text" ? block.text : "";
+          stream.push({ type: "text_end", contentIndex: activeContentIndex, content: text, partial: output });
         }
 
         if (output.stopReason === "error") {

@@ -346,6 +346,14 @@ if (isPrintMode) {
   })
   await resourceLoader.reload()
 
+  // Apply pending provider registrations from extensions immediately
+  // so they're available for model resolution before AgentSession is created
+  const preSessionExtensions = resourceLoader.getExtensions()
+  for (const { name, config } of preSessionExtensions.runtime.pendingProviderRegistrations) {
+    modelRegistry.registerProvider(name, config)
+  }
+  preSessionExtensions.runtime.pendingProviderRegistrations = []
+
   const { session, extensionsResult } = await createAgentSession({
     authStorage,
     modelRegistry,
@@ -438,6 +446,14 @@ exitIfManagedResourcesAreNewer(agentDir)
 initResources(agentDir)
 const resourceLoader = buildResourceLoader(agentDir)
 await resourceLoader.reload()
+
+// Apply pending provider registrations from extensions immediately
+// so they're available for model resolution before AgentSession is created
+const preSessionExtensions = resourceLoader.getExtensions()
+for (const { name, config } of preSessionExtensions.runtime.pendingProviderRegistrations) {
+  modelRegistry.registerProvider(name, config)
+}
+preSessionExtensions.runtime.pendingProviderRegistrations = []
 
 const { session, extensionsResult } = await createAgentSession({
   authStorage,

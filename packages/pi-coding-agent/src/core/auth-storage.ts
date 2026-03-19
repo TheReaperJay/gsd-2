@@ -728,6 +728,10 @@ export class AuthStorage {
 			return resolveConfigValue(cred.key);
 		}
 
+		if (cred.type === "claude-code") {
+			return "claude-code-sdk-managed";
+		}
+
 		if (cred.type === "oauth") {
 			const provider = getOAuthProvider(providerId);
 			if (!provider) return undefined;

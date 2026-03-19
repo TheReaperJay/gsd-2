@@ -10,10 +10,25 @@ export function resolve(specifier, context, nextResolve) {
     specifier = new URL("packages/pi-ai/dist/index.js", ROOT).href;
   } else if (specifier === "@gsd/pi-agent-core") {
     specifier = new URL("packages/pi-agent-core/dist/index.js", ROOT).href;
-  } 
-  // 2. Mapping .js to .ts for local imports when running tests from src/
+  }
+  // 2. Redirect packages/*/src/ relative imports to packages/*/dist/
+  // Package source uses TypeScript features (parameter properties, decorators)
+  // that --experimental-strip-types can't handle, so tests must use compiled output.
   else if (specifier.endsWith('.js') && (specifier.startsWith('./') || specifier.startsWith('../'))) {
-    if (context.parentURL && context.parentURL.includes('/src/')) {
+    if (context.parentURL && context.parentURL.includes('/packages/') && context.parentURL.includes('/src/')) {
+      const parentPath = new URL(context.parentURL).pathname;
+      const srcIndex = parentPath.indexOf('/src/');
+      const pkgRoot = parentPath.substring(0, srcIndex);
+      const parentRelDir = parentPath.substring(srcIndex + 1); // "src/core/auth-storage.test.ts"
+      const parentDir = parentRelDir.substring(0, parentRelDir.lastIndexOf('/'));  // "src/core"
+      // Resolve the specifier relative to parent dir, then remap src/ -> dist/
+      const resolved = new URL(specifier, new URL(parentDir + '/dummy', 'file:///'));
+      const resolvedPath = resolved.pathname; // e.g. "/src/core/auth-storage.js"
+      const remapped = resolvedPath.replace(/^\/src\//, '/dist/');
+      specifier = new URL(pkgRoot + remapped, 'file:///').href;
+    }
+    // 3. Mapping .js to .ts for local imports when running tests from src/
+    else if (context.parentURL && context.parentURL.includes('/src/')) {
       specifier = specifier.replace(/\.js$/, '.ts');
     }
   }

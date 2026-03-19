@@ -47,7 +47,7 @@
     "copy-resources": "node scripts/copy-resources.cjs",
     "copy-themes": "node scripts/copy-themes.cjs",
     "copy-export-html": "node scripts/copy-export-html.cjs",
-    "test:unit": "node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/*.test.ts src/resources/extensions/gsd/tests/*.test.mjs src/tests/*.test.ts",
+    "test:unit": "node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/*.test.ts src/resources/extensions/gsd/tests/*.test.mjs src/tests/*.test.ts packages/*/src/**/*.test.ts",
     "test:coverage": "c8 --reporter=text --reporter=lcov --exclude='src/resources/extensions/gsd/tests/**' --exclude='src/tests/**' --exclude='scripts/**' --exclude='native/**' --exclude='node_modules/**' --check-coverage --statements=40 --lines=40 --branches=0 --functions=0 node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/*.test.ts src/resources/extensions/gsd/tests/*.test.mjs src/tests/*.test.ts",
     "test:integration": "node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/*integration*.test.ts src/tests/integration/*.test.ts",
     "test": "npm run test:unit && npm run test:integration",
@@ -71,6 +71,7 @@
     "prepublishOnly": "npm run sync-pkg-version && npm run sync-platform-versions && git diff --exit-code || (echo 'ERROR: version sync changed files — commit them before publishing' && exit 1) && npm run build && npm run typecheck:extensions && npm run validate-pack"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.79",
     "@anthropic-ai/sdk": "^0.73.0",
     "@aws-sdk/client-bedrock-runtime": "^3.983.0",
     "@clack/prompts": "^1.1.0",
