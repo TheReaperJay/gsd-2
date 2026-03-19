@@ -6,14 +6,14 @@ current_phase: 1
 current_phase_name: Pipeline Extraction
 current_plan: 1
 status: executing
-stopped_at: Completed 06-provider-integration plan 06-02-PLAN.md
-last_updated: "2026-03-19T09:07:36.706Z"
+stopped_at: Completed 06-provider-integration plan 06-03-PLAN.md
+last_updated: "2026-03-19T09:18:08.331Z"
 last_activity: 2026-03-19
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 16
-  completed_plans: 13
+  completed_plans: 14
   percent: 0
 ---
 
@@ -36,8 +36,8 @@ Current Plan: 1
 Total Plans in Phase: 1
 Status: In progress
 Last Activity: 2026-03-19
-Last session: 2026-03-19T09:07:36.703Z
-Stopped At: Completed 06-provider-integration plan 06-02-PLAN.md
+Last session: 2026-03-19T09:18:08.329Z
+Stopped At: Completed 06-provider-integration plan 06-03-PLAN.md
 Resume File: None
 
 Progress: [░░░░░░░░░░] 0%
@@ -73,6 +73,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-integration-recovery P01 | 6min | 2 tasks | 3 files |
 | Phase 06-provider-integration P01 | 18min | 2 tasks | 5 files |
 | Phase 06-provider-integration P02 | 13min | 3 tasks | 4 files |
+| Phase 06-provider-integration PP03 | 7min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Recent decisions affecting current work:
 - [Phase 06-provider-integration]: SteeringQueue extracted to steering-queue.ts and re-exported from sdk-executor.ts for backwards compatibility with existing tests
 - [Phase 06-provider-integration]: Single try/catch/finally wraps all async operations in stream adapter so steeringQueue.close() always runs in finally regardless of where the error originates
 - [Phase 06-provider-integration]: StreamAdapterDeps uses getter callbacks (getUnitInfo, getBasePath, getIsUnitDone) called per invocation not captured at factory creation time
+- [Phase 06-provider-integration]: stream-adapter-state.ts is a neutral module owning per-dispatch mutable state — auto.ts writes setters, index.ts wires getters into StreamAdapterDeps callbacks, no circular import
+- [Phase 06-provider-integration]: SettingsManager.create(agentDir) called inline in runClaudeCodeCliCheck rather than passing settingsManager as parameter — onboarding runs once, instantiation cost negligible
 
 ### Roadmap Evolution
 

@@ -46,8 +46,8 @@ Requirements for Claude Code integration. Each maps to roadmap phases.
 
 - [x] **PROV-01**: Pi's agent loop supports provider-managed tool execution — `provider_tool_start`/`provider_tool_end` stream events trigger `tool_execution_start`/`tool_execution_end` AgentEvents without calling `tool.execute()`
 - [x] **PROV-02**: The `streamSimple` implementation wraps the entire SDK `query()` session as a single `AssistantMessageEventStream` — SDK hook events (PreToolUse/PostToolUse) are translated to `provider_tool_start`/`provider_tool_end`, and the final SDK turn's text content is emitted as standard text events
-- [ ] **PROV-03**: Claude-code is registered as a Pi provider via `modelRegistry.registerProvider()` with 3 models (opus, sonnet, haiku), a `streamSimple` implementation, and availability gated by `authStorage.hasAuth("claude-code")`
-- [ ] **PROV-04**: Onboarding sets default model/provider after storing claude-code credential — TUI boots and shows claude-code models without "No model selected" error
+- [x] **PROV-03**: Claude-code is registered as a Pi provider via `modelRegistry.registerProvider()` with 3 models (opus, sonnet, haiku), a `streamSimple` implementation, and availability gated by `authStorage.hasAuth("claude-code")`
+- [x] **PROV-04**: Onboarding sets default model/provider after storing claude-code credential — TUI boots and shows claude-code models without "No model selected" error
 - [ ] **PROV-05**: The bolt-on SDK dispatch branch in `auto.ts` is removed — all providers dispatch through Pi's standard agent loop → streamSimple pipeline
 - [x] **PROV-06**: TUI displays real-time streaming text and tool execution visibility during Claude Code SDK sessions, matching the experience of other Pi providers
 
