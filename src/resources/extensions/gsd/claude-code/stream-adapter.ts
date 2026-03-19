@@ -151,84 +151,13 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
       const activityWriter = new SdkActivityWriter(basePath, unitType, unitId);
 
       // ── Idle tracking ─────────────────────────────────────────────────────
-      // lastActivityAt must be declared before hook bridge so that both the
-      // hook wrappers and the idle watchdog setInterval share the same variable.
+      // lastActivityAt must be declared before the try block so that both the
+      // hook wrappers (inside try) and the idle watchdog setInterval share the
+      // same variable.
       let lastActivityAt = Date.now();
 
-      // ── Hook bridge ───────────────────────────────────────────────────────
-      // Wraps tool callbacks to reset idle clock AND push provider_tool events
-      // to the Pi stream.
-      const hookBridge = createHookBridge({
-        onToolStart: (event: GsdToolEvent) => {
-          lastActivityAt = Date.now();
-          deps.onToolStart(event.toolCallId);
-          stream.push({
-            type: "provider_tool_start",
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            args: event.input,
-          });
-        },
-        onToolEnd: (event: GsdToolEvent) => {
-          lastActivityAt = Date.now();
-          deps.onToolEnd(event.toolCallId);
-          stream.push({
-            type: "provider_tool_end",
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            result: event.input ?? null,
-            isError: event.isError ?? false,
-          });
-        },
-        shouldBlockContextWrite: deps.shouldBlockContextWrite,
-        getMilestoneId: deps.getMilestoneId,
-        isDepthVerified: deps.isDepthVerified,
-      });
-
-      // ── MCP server ────────────────────────────────────────────────────────
-      const mcpServer = await createGsdMcpServer();
-
-      // ── Stop hook (Pitfall 3 prevention) ──────────────────────────────────
-      /**
-       * Stop hook handler — fires when the SDK agent decides the unit is done.
-       *
-       * Returns { continue: false } to block completion when GSD determines the
-       * required artifacts are not yet present. Returns {} to allow completion.
-       *
-       * CRITICAL: When stop_hook_active is false, the hook already fired once and
-       * blocked. The SDK is now on a re-run turn. We MUST return {} regardless of
-       * artifact state — blocking again creates an infinite loop (Pitfall 3).
-       */
-      const stopHookHandler = async (rawInput: unknown): Promise<HookResult> => {
-        const input = rawInput as StopHookInput;
-        if (!input.stop_hook_active) {
-          return {};
-        }
-        if (!deps.getIsUnitDone()) {
-          return { continue: false };
-        }
-        return {};
-      };
-
-      // ── Query options ─────────────────────────────────────────────────────
-      const queryOptions = {
-        model: sdkAlias,
-        systemPrompt: context.systemPrompt ?? "",
-        cwd: basePath,
-        mcpServers: { "gsd-tools": mcpServer },
-        hooks: {
-          ...hookBridge,
-          Stop: [{ hooks: [stopHookHandler] }],
-        },
-        permissionMode: "bypassPermissions" as const,
-        allowDangerouslySkipPermissions: true,
-        persistSession: false,
-        // NOTE: maxTurns is intentionally NOT set — GSD uses time-based supervision
-        // via the steering channel. Setting maxTurns would conflict with the locked
-        // decision to use soft/idle/hard timeouts only.
-      };
-
       // ── Supervision timer handles ─────────────────────────────────────────
+      // Declared before try block so the finally block can clear them.
       let wrapupWarningHandle: ReturnType<typeof setTimeout> | null = null;
       let idleWatchdogHandle: ReturnType<typeof setInterval> | null = null;
       let hardTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -248,101 +177,9 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
         }
       }
 
-      // Set up wrapup warning timer (replicates auto.ts lines 2866-2889)
-      if (softTimeoutMs > 0) {
-        wrapupWarningHandle = setTimeout(() => {
-          wrapupWarningHandle = null;
-          steeringQueue.push({
-            type: "user",
-            message: { role: "user", content: WRAPUP_WARNING_TEXT },
-            priority: "now",
-            session_id: sessionId ?? "",
-            parent_tool_use_id: null,
-          } as SdkUserMessage);
-        }, softTimeoutMs);
-      }
-
-      // Set up idle watchdog interval (replicates auto.ts lines 2891-2949)
-      // Fires every 15 seconds and pushes idle recovery steering when idle.
-      // lastActivityAt is reset by hook bridge callbacks so tool activity
-      // prevents spurious firing.
-      if (idleTimeoutMs > 0) {
-        idleWatchdogHandle = setInterval(() => {
-          const idleMs = Date.now() - lastActivityAt;
-          if (idleMs < idleTimeoutMs) return;
-
-          const steeringLines = [
-            `**IDLE RECOVERY — do not stop.**`,
-            `You are still executing ${unitType} ${unitId}.`,
-            "Do not keep exploring.",
-            "Immediately finish the required durable output for this unit.",
-            "If full completion is impossible, write the partial artifact/state needed for recovery and make the blocker explicit.",
-          ];
-
-          steeringQueue.push({
-            type: "user",
-            message: { role: "user", content: steeringLines.join("\n") },
-            priority: "now",
-            session_id: sessionId ?? "",
-            parent_tool_use_id: null,
-          } as SdkUserMessage);
-
-          lastActivityAt = Date.now();
-        }, 15000);
-      }
-
-      // Hard timeout — push a final recovery message to the steering queue
-      if (hardTimeoutMs > 0) {
-        hardTimeoutHandle = setTimeout(() => {
-          hardTimeoutHandle = null;
-          steeringQueue.push({
-            type: "user",
-            message: {
-              role: "user",
-              content: [
-                "**HARD TIMEOUT — unit must wrap up immediately.**",
-                `You are still executing ${unitType} ${unitId}.`,
-                "You have exceeded the hard time budget. Finish now.",
-                "Write the partial artifact/state needed for recovery.",
-                "Make any blocker explicit.",
-              ].join("\n"),
-            },
-            priority: "now",
-            session_id: sessionId ?? "",
-            parent_tool_use_id: null,
-          } as SdkUserMessage);
-        }, hardTimeoutMs);
-      }
-
-      // ── Execute query loop ────────────────────────────────────────────────
-
-      // Import SDK dynamically — optional dependency; fails at call time, not load time
-      let query: (params: {
-        prompt: AsyncIterable<SdkUserMessage>;
-        options?: Record<string, unknown>;
-      }) => AsyncIterable<unknown> & {
-        interrupt?: () => Promise<void>;
-        close?: () => void;
-      };
-
-      try {
-        const sdk = await import("@anthropic-ai/claude-agent-sdk").catch(() => {
-          throw new Error(
-            "Claude Code provider requires @anthropic-ai/claude-agent-sdk.\n" +
-            "Run: npm install @anthropic-ai/claude-agent-sdk",
-          );
-        });
-        query = sdk.query as typeof query;
-      } catch (err) {
-        output.stopReason = "error";
-        output.errorMessage = err instanceof Error ? err.message : String(err);
-        stream.push({ type: "error", reason: "error", error: output });
-        stream.end();
-        return;
-      }
-
-      // AbortSignal handling — if options.signal is provided, abort the query
-      // when the signal fires (same pattern as stopAuto in auto.ts)
+      // ── AbortSignal handling ──────────────────────────────────────────────
+      // Declared before try block so the abort listener can reference queryObj
+      // which is set inside the try block.
       let queryObj: (AsyncIterable<unknown> & { interrupt?: () => Promise<void>; close?: () => void }) | null = null;
 
       if (options?.signal) {
@@ -355,15 +192,175 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
         }, { once: true });
       }
 
-      // Track the last assistant message — only its text blocks go into Pi stream
-      let lastAssistantMsg: Record<string, unknown> | null = null;
-
-      queryObj = query({
-        prompt: steeringQueue,
-        options: queryOptions as unknown as Record<string, unknown>,
-      });
-
+      // ── Single try/catch/finally covering ALL async operations ────────────
+      // This ensures the finally block always runs regardless of where the error
+      // originates — including MCP server creation and SDK import.
       try {
+        // ── Hook bridge ───────────────────────────────────────────────────────
+        // Wraps tool callbacks to reset idle clock AND push provider_tool events
+        // to the Pi stream.
+        const hookBridge = createHookBridge({
+          onToolStart: (event: GsdToolEvent) => {
+            lastActivityAt = Date.now();
+            deps.onToolStart(event.toolCallId);
+            stream.push({
+              type: "provider_tool_start",
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+              args: event.input,
+            });
+          },
+          onToolEnd: (event: GsdToolEvent) => {
+            lastActivityAt = Date.now();
+            deps.onToolEnd(event.toolCallId);
+            stream.push({
+              type: "provider_tool_end",
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+              result: event.input ?? null,
+              isError: event.isError ?? false,
+            });
+          },
+          shouldBlockContextWrite: deps.shouldBlockContextWrite,
+          getMilestoneId: deps.getMilestoneId,
+          isDepthVerified: deps.isDepthVerified,
+        });
+
+        // ── MCP server ────────────────────────────────────────────────────────
+        const mcpServer = await createGsdMcpServer();
+
+        // ── Stop hook (Pitfall 3 prevention) ──────────────────────────────────
+        /**
+         * Stop hook handler — fires when the SDK agent decides the unit is done.
+         *
+         * Returns { continue: false } to block completion when GSD determines the
+         * required artifacts are not yet present. Returns {} to allow completion.
+         *
+         * CRITICAL: When stop_hook_active is false, the hook already fired once and
+         * blocked. The SDK is now on a re-run turn. We MUST return {} regardless of
+         * artifact state — blocking again creates an infinite loop (Pitfall 3).
+         */
+        const stopHookHandler = async (rawInput: unknown): Promise<HookResult> => {
+          const input = rawInput as StopHookInput;
+          if (!input.stop_hook_active) {
+            return {};
+          }
+          if (!deps.getIsUnitDone()) {
+            return { continue: false };
+          }
+          return {};
+        };
+
+        // ── Query options ──────────────────────────────────────────────────────
+        const queryOptions = {
+          model: sdkAlias,
+          systemPrompt: context.systemPrompt ?? "",
+          cwd: basePath,
+          mcpServers: { "gsd-tools": mcpServer },
+          hooks: {
+            ...hookBridge,
+            Stop: [{ hooks: [stopHookHandler] }],
+          },
+          permissionMode: "bypassPermissions" as const,
+          allowDangerouslySkipPermissions: true,
+          persistSession: false,
+          // NOTE: maxTurns is intentionally NOT set — GSD uses time-based supervision
+          // via the steering channel. Setting maxTurns would conflict with the locked
+          // decision to use soft/idle/hard timeouts only.
+        };
+
+        // ── Supervision timers ─────────────────────────────────────────────────
+
+        // Set up wrapup warning timer (replicates auto.ts lines 2866-2889)
+        if (softTimeoutMs > 0) {
+          wrapupWarningHandle = setTimeout(() => {
+            wrapupWarningHandle = null;
+            steeringQueue.push({
+              type: "user",
+              message: { role: "user", content: WRAPUP_WARNING_TEXT },
+              priority: "now",
+              session_id: sessionId ?? "",
+              parent_tool_use_id: null,
+            } as SdkUserMessage);
+          }, softTimeoutMs);
+        }
+
+        // Set up idle watchdog interval (replicates auto.ts lines 2891-2949)
+        // Fires every 15 seconds and pushes idle recovery steering when idle.
+        // lastActivityAt is reset by hook bridge callbacks so tool activity
+        // prevents spurious firing.
+        if (idleTimeoutMs > 0) {
+          idleWatchdogHandle = setInterval(() => {
+            const idleMs = Date.now() - lastActivityAt;
+            if (idleMs < idleTimeoutMs) return;
+
+            const steeringLines = [
+              `**IDLE RECOVERY — do not stop.**`,
+              `You are still executing ${unitType} ${unitId}.`,
+              "Do not keep exploring.",
+              "Immediately finish the required durable output for this unit.",
+              "If full completion is impossible, write the partial artifact/state needed for recovery and make the blocker explicit.",
+            ];
+
+            steeringQueue.push({
+              type: "user",
+              message: { role: "user", content: steeringLines.join("\n") },
+              priority: "now",
+              session_id: sessionId ?? "",
+              parent_tool_use_id: null,
+            } as SdkUserMessage);
+
+            lastActivityAt = Date.now();
+          }, 15000);
+        }
+
+        // Hard timeout — push a final recovery message to the steering queue
+        if (hardTimeoutMs > 0) {
+          hardTimeoutHandle = setTimeout(() => {
+            hardTimeoutHandle = null;
+            steeringQueue.push({
+              type: "user",
+              message: {
+                role: "user",
+                content: [
+                  "**HARD TIMEOUT — unit must wrap up immediately.**",
+                  `You are still executing ${unitType} ${unitId}.`,
+                  "You have exceeded the hard time budget. Finish now.",
+                  "Write the partial artifact/state needed for recovery.",
+                  "Make any blocker explicit.",
+                ].join("\n"),
+              },
+              priority: "now",
+              session_id: sessionId ?? "",
+              parent_tool_use_id: null,
+            } as SdkUserMessage);
+          }, hardTimeoutMs);
+        }
+
+        // ── Import SDK dynamically ─────────────────────────────────────────────
+        // Optional dependency — fails at call time with clear install instruction
+        const sdk = await import("@anthropic-ai/claude-agent-sdk").catch(() => {
+          throw new Error(
+            "Claude Code provider requires @anthropic-ai/claude-agent-sdk.\n" +
+            "Run: npm install @anthropic-ai/claude-agent-sdk",
+          );
+        });
+        const query = sdk.query as (params: {
+          prompt: AsyncIterable<SdkUserMessage>;
+          options?: Record<string, unknown>;
+        }) => AsyncIterable<unknown> & {
+          interrupt?: () => Promise<void>;
+          close?: () => void;
+        };
+
+        // Track the last assistant message — only its text blocks go into Pi stream
+        let lastAssistantMsg: Record<string, unknown> | null = null;
+
+        queryObj = query({
+          prompt: steeringQueue,
+          options: queryOptions as unknown as Record<string, unknown>,
+        });
+
         for await (const msg of queryObj) {
           const sdkMsg = msg as Record<string, unknown>;
 
@@ -413,7 +410,7 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
           }
         }
 
-        // ── Emit text events from the final assistant message ───────────────
+        // ── Emit text events from the final assistant message ──────────────────
         // Emit start first, then the final message's text content as stream events,
         // then done. Only text blocks from the last assistant message are emitted.
         // Intermediate turns are visible via provider_tool events from hooks.
