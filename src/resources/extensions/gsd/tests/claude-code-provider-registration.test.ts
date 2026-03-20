@@ -3,8 +3,8 @@
  *
  * Covers:
  * - stream-adapter-state.ts: setter/getter round-trips for per-dispatch state
- * - Provider registration config: 3 models with correct IDs, names, providerData
- * - sdkAlias values match expected SDK tier names (opus, sonnet, haiku)
+ * - Provider registration config: 3 models with correct IDs, names, SDK aliases
+ * - SDK alias values match expected tier names (opus, sonnet, haiku)
  * - All model costs are 0 (billing delegated to Claude subscription)
  * - Model IDs are prefixed with "claude-code:" to avoid Anthropic provider collision
  */

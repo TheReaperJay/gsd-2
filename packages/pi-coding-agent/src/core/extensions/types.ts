@@ -23,7 +23,6 @@ import type {
 	Model,
 	OAuthCredentials,
 	OAuthLoginCallbacks,
-	ProviderModelData,
 	SimpleStreamOptions,
 	TextContent,
 	ToolResultMessage,
@@ -1237,8 +1236,6 @@ export interface ProviderModelConfig {
 	headers?: Record<string, string>;
 	/** OpenAI compatibility settings. */
 	compat?: Model<Api>["compat"];
-	/** Provider-specific metadata passed through to the Model object. */
-	providerData?: ProviderModelData;
 }
 
 /** Extension factory function type. Supports both sync and async initialization. */

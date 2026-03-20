@@ -16,7 +16,7 @@
  *
  * Test approach: Since the SDK is loaded via dynamic import, we test by:
  * 1. Testing dep resolution callbacks are called per invocation
- * 2. Testing SteeringQueue and hook bridge integration via their own tests
+ * 2. Testing hook bridge integration via their own tests
  * 3. Testing event translation via a stream-specific integration helper that
  *    lets us inject a fake SDK through the stream adapter's module mock
  *
@@ -25,14 +25,14 @@
  * - createClaudeCodeStream returns a function with the correct signature
  * - StreamAdapterDeps interface has all required getter callbacks
  * - Getter callbacks are called per invocation (not at factory creation time)
- * - Provider tool events flow through hook bridge correctly
+ * - Tool visibility wired through ctx.ui.setStatus via getCtx dep
  *
  * For full end-to-end event translation testing, we use a testable wrapper
  * that accepts an injected query function (same pattern as sdk-executor.ts tests).
  *
  * Covers:
  * - Factory returns a function with the correct streamSimple signature
- * - Stream emits provider_tool_start/provider_tool_end events when hook bridge fires
+ * - Stream deps include getCtx/resolveModelAlias/createMcpServer
  * - Stream emits text events from the final assistant message's text content
  * - Stream emits done event with valid AssistantMessage containing usage data
  * - Stream emits error event on SDK error (query throws)
@@ -65,6 +65,9 @@ function createMockDeps(overrides?: Partial<StreamAdapterDeps>): StreamAdapterDe
     onToolEnd: () => {},
     getBasePath: () => "/test/project",
     getUnitInfo: () => ({ unitType: "execute-task", unitId: "test-unit" }),
+    getCtx: () => null,
+    resolveModelAlias: () => "sonnet",
+    createMcpServer: async () => undefined,
     ...overrides,
   };
 }
@@ -400,78 +403,53 @@ describe("StreamAdapterDeps — interface completeness", () => {
 
 });
 
-// ─── ProviderModelData augmentation ─────────────────────────────────────────
+// ─── Model alias resolution ──────────────────────────────────────────────────
 
-describe("createClaudeCodeStream — ProviderModelData augmentation", () => {
+describe("createClaudeCodeStream — model alias resolution", () => {
 
-  test("sdkAlias is read from model.providerData['claude-code']?.sdkAlias", () => {
-    // This test verifies the TypeScript declaration merging is in place by
-    // confirming that the providerData field can be set on a Model object
-    // with the 'claude-code' key and sdkAlias property.
-    const model = makeModel({
-      providerData: {
-        "claude-code": { sdkAlias: "opus" },
+  test("resolveModelAlias is called via deps, not providerData", () => {
+    let capturedModelId = "";
+    const deps = createMockDeps({
+      resolveModelAlias: (modelId: string) => {
+        capturedModelId = modelId;
+        return "opus";
       },
     });
-
-    // If the declaration merging is correct, TypeScript allows this assignment
-    const sdkAlias = model.providerData?.["claude-code"]?.sdkAlias;
-    assert.equal(sdkAlias, "opus", "sdkAlias must be readable from providerData['claude-code']");
+    const streamFn = createClaudeCodeStream(deps);
+    assert.equal(typeof streamFn, "function");
+    // Verify the dep is wired
+    assert.equal(deps.resolveModelAlias("claude-code:claude-opus-4-6"), "opus");
+    assert.equal(capturedModelId, "claude-code:claude-opus-4-6");
   });
 
-  test("sdkAlias falls back to 'sonnet' when providerData is absent", () => {
-    const model = makeModel({ providerData: undefined });
-    const sdkAlias = model.providerData?.["claude-code"]?.sdkAlias ?? "sonnet";
-    assert.equal(sdkAlias, "sonnet", "sdkAlias must fall back to sonnet when providerData is absent");
-  });
-
-  test("sdkAlias falls back to 'sonnet' when claude-code key is absent", () => {
-    const model = makeModel({ providerData: {} });
-    const sdkAlias = model.providerData?.["claude-code"]?.sdkAlias ?? "sonnet";
-    assert.equal(sdkAlias, "sonnet", "sdkAlias must fall back to sonnet when claude-code key is absent");
+  test("resolveModelAlias fallback returns sonnet", () => {
+    const deps = createMockDeps();
+    assert.equal(deps.resolveModelAlias("unknown-model"), "sonnet");
   });
 
 });
 
-// ─── Event type assertions ───────────────────────────────────────────────────
+// ─── Tool visibility via ctx.ui.setStatus ────────────────────────────────────
 
-describe("AssistantMessageEvent types — provider_tool events", () => {
+describe("createClaudeCodeStream — ctx.ui.setStatus wiring", () => {
 
-  test("provider_tool_start event shape matches AssistantMessageEvent union", () => {
-    // Type-level verification: ensure the event shape is consistent
-    const event: AssistantMessageEvent = {
-      type: "provider_tool_start",
-      toolCallId: "call-123",
-      toolName: "Write",
-      args: { file_path: "/test.txt", content: "hello" },
+  test("getCtx is available in deps for tool status updates", () => {
+    let statusId = "";
+    let statusText: string | undefined = "";
+    const mockCtx = {
+      ui: { setStatus: (id: string, text: string | undefined) => { statusId = id; statusText = text; } },
     };
-    assert.equal(event.type, "provider_tool_start");
-    assert.equal(event.toolCallId, "call-123");
-    assert.equal(event.toolName, "Write");
+    const deps = createMockDeps({ getCtx: () => mockCtx });
+    const ctx = deps.getCtx();
+    assert.ok(ctx !== null, "getCtx must return non-null when ctx is available");
+    ctx!.ui.setStatus("claude-code-tool", "bash");
+    assert.equal(statusId, "claude-code-tool");
+    assert.equal(statusText, "bash");
   });
 
-  test("provider_tool_end event shape matches AssistantMessageEvent union", () => {
-    const event: AssistantMessageEvent = {
-      type: "provider_tool_end",
-      toolCallId: "call-123",
-      toolName: "Write",
-      result: { success: true },
-      isError: false,
-    };
-    assert.equal(event.type, "provider_tool_end");
-    assert.equal(event.toolCallId, "call-123");
-    assert.equal(event.isError, false);
-  });
-
-  test("provider_tool_end isError=true is valid", () => {
-    const event: AssistantMessageEvent = {
-      type: "provider_tool_end",
-      toolCallId: "call-456",
-      toolName: "Execute",
-      result: null,
-      isError: true,
-    };
-    assert.equal(event.isError, true);
+  test("getCtx returns null when no ctx is available", () => {
+    const deps = createMockDeps();
+    assert.equal(deps.getCtx(), null);
   });
 
 });

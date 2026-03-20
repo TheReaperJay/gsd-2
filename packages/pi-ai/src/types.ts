@@ -251,8 +251,6 @@ export type AssistantMessageEvent =
 	| { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall; partial: AssistantMessage }
 	| { type: "server_tool_use"; contentIndex: number; partial: AssistantMessage }
 	| { type: "web_search_result"; contentIndex: number; partial: AssistantMessage }
-	| { type: "provider_tool_start"; toolCallId: string; toolName: string; args: unknown }
-	| { type: "provider_tool_end"; toolCallId: string; toolName: string; result: unknown; isError: boolean }
 	| { type: "done"; reason: Extract<StopReason, "stop" | "length" | "toolUse">; message: AssistantMessage }
 	| { type: "error"; reason: Extract<StopReason, "aborted" | "error">; error: AssistantMessage };
 
@@ -318,9 +316,6 @@ export interface VercelGatewayRouting {
 	order?: string[];
 }
 
-/** Extensible interface for provider-specific model metadata. Providers augment via declaration merging. */
-export interface ProviderModelData {}
-
 // Model interface for the unified model system
 export interface Model<TApi extends Api> {
 	id: string;
@@ -345,6 +340,4 @@ export interface Model<TApi extends Api> {
 		: TApi extends "openai-responses"
 			? OpenAIResponsesCompat
 			: never;
-	/** Provider-specific metadata. Providers augment ProviderModelData via declaration merging. */
-	providerData?: ProviderModelData;
 }

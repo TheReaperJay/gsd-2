@@ -3,7 +3,7 @@
  *
  * Verifies the dispatch path for claude-code models end-to-end:
  * - streamSimple factory returns AssistantMessageEventStream for claude-code model
- * - Model construction with provider: "claude-code" and providerData is valid
+ * - Model construction with provider: "claude-code" is valid
  * - No references to deleted modules remain in production code
  * - auto.ts writeLock uses session file directly (no provider conditional)
  *
@@ -33,6 +33,9 @@ function createMockDeps(overrides?: Partial<StreamAdapterDeps>): StreamAdapterDe
     onToolEnd: () => {},
     getBasePath: () => "/test/project",
     getUnitInfo: () => ({ unitType: "execute-task", unitId: "test-unit" }),
+    getCtx: () => null,
+    resolveModelAlias: () => "sonnet",
+    createMcpServer: async () => undefined,
     ...overrides,
   };
 }
@@ -49,9 +52,6 @@ function makeClaudeCodeModel(overrides?: Partial<Model<Api>>): Model<Api> {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200000,
     maxTokens: 16000,
-    providerData: {
-      "claude-code": { sdkAlias: "sonnet" },
-    },
     ...overrides,
   };
 }
@@ -90,15 +90,9 @@ describe("claude-code provider dispatch", () => {
     );
   });
 
-  it("model with provider: 'claude-code' and providerData carries sdkAlias", () => {
-    const model = makeClaudeCodeModel({
-      providerData: {
-        "claude-code": { sdkAlias: "sonnet" },
-      },
-    });
-
-    assert.equal(model.provider, "claude-code");
-    assert.equal(model.providerData?.["claude-code"]?.sdkAlias, "sonnet");
+  it("SDK alias is resolved from model ID via deps.resolveModelAlias", () => {
+    const model = makeClaudeCodeModel();
+    assert.ok(model.id.includes("sonnet"), "model ID must contain the model family for alias resolution");
   });
 
   it("no references to deleted modules in production code", () => {
@@ -144,12 +138,12 @@ describe("claude-code provider dispatch", () => {
     );
   });
 
-  it("index.ts registers claude-code provider via pi.registerProvider()", () => {
-    const indexTs = readFileSync(join(GSD_SRC, "index.ts"), "utf8");
+  it("claude-code provider is registered via register.ts", () => {
+    const registerTs = readFileSync(join(GSD_SRC, "claude-code", "register.ts"), "utf8");
 
     assert.ok(
-      indexTs.includes('pi.registerProvider("claude-code"'),
-      "index.ts must call pi.registerProvider(\"claude-code\", ...) to register the provider",
+      registerTs.includes('pi.registerProvider("claude-code"'),
+      "register.ts must call pi.registerProvider(\"claude-code\", ...) to register the provider",
     );
   });
 

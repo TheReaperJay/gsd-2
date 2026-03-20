@@ -46,13 +46,14 @@ import {
   getNextFallbackModel,
   resolveAutoSupervisorConfig,
 } from "./preferences.js";
-import { createClaudeCodeStream } from "./claude-code/stream-adapter.js";
-import type { StreamAdapterDeps } from "./claude-code/stream-adapter.js";
 import {
   getStreamAdapterUnitInfo,
   getStreamAdapterBasePath,
   getStreamAdapterIsUnitDone,
 } from "./claude-code/stream-adapter-state.js";
+import { registerAllGsdTools } from "./gsd-sdk-tools.js";
+import { registerClaudeCodeProvider } from "./claude-code/register.js";
+import type { GsdProviderDeps } from "./provider-api/types.js";
 import { hasSkillSnapshot, detectNewSkills, formatSkillsXml } from "./skill-discovery.js";
 import {
   resolveSlicePath, resolveSliceFile, resolveTaskFile, resolveTaskFiles, resolveTasksDir,
@@ -105,6 +106,7 @@ export function isDepthVerified(): boolean {
 
 // ── Write-gate: block CONTEXT.md writes during discussion without depth verification ──
 export { shouldBlockContextWrite } from "./write-gate.js";
+import { shouldBlockContextWrite } from "./write-gate.js";
 
 // ── ASCII logo ────────────────────────────────────────────────────────────
 const GSD_LOGO_LINES = [
@@ -901,65 +903,26 @@ export default function (pi: ExtensionAPI) {
     markToolEnd(event.toolCallId);
   });
 
-  // ── Claude Code provider registration ────────────────────────────────────────
-  // Register claude-code as a Pi provider when the extension initializes.
-  // Availability is automatically gated by authStorage.hasAuth("claude-code")
-  // in the model registry's getAvailable() method.
+  // ── Provider registration ─────────────────────────────────────────────────
+  // Register GSD's custom tools in the shared registry, then register
+  // providers that consume them. Adding a new provider = one more call here.
 
-  const streamAdapterDeps: StreamAdapterDeps = {
+  registerAllGsdTools();
+
+  const providerDeps: GsdProviderDeps = {
     getSupervisorConfig: resolveAutoSupervisorConfig,
-    shouldBlockContextWrite: (toolName, inputPath, milestoneId, depthVerified) =>
+    shouldBlockContextWrite: (toolName: string, inputPath: string, milestoneId: string | null, depthVerified: boolean) =>
       shouldBlockContextWrite(toolName, inputPath, milestoneId, depthVerified),
     getMilestoneId: () => getDiscussionMilestoneId(),
-    isDepthVerified: () => true, // Auto-mode runs post-discussion; depth always verified
+    isDepthVerified: () => true,
     getIsUnitDone: () => getStreamAdapterIsUnitDone(),
-    onToolStart: (toolCallId) => markToolStart(toolCallId),
-    onToolEnd: (toolCallId) => markToolEnd(toolCallId),
+    onToolStart: (toolCallId: string) => markToolStart(toolCallId),
+    onToolEnd: (toolCallId: string) => markToolEnd(toolCallId),
     getBasePath: () => getStreamAdapterBasePath(),
     getUnitInfo: () => getStreamAdapterUnitInfo(),
   };
 
-  pi.registerProvider("claude-code", {
-    api: "claude-code",
-    baseUrl: "claude-code:", // placeholder — streamSimple does not use it
-    apiKey: "claude-code",   // placeholder — auth is CLI-based
-    streamSimple: createClaudeCodeStream(streamAdapterDeps),
-    models: [
-      {
-        id: "claude-code:claude-opus-4-6",
-        name: "Claude Opus 4.6",
-        api: "claude-code",
-        reasoning: true,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 200000,
-        maxTokens: 32000,
-        providerData: { 'claude-code': { sdkAlias: 'opus' } },
-      },
-      {
-        id: "claude-code:claude-sonnet-4-6",
-        name: "Claude Sonnet 4.6",
-        api: "claude-code",
-        reasoning: true,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 200000,
-        maxTokens: 16000,
-        providerData: { 'claude-code': { sdkAlias: 'sonnet' } },
-      },
-      {
-        id: "claude-code:claude-haiku-4-5",
-        name: "Claude Haiku 4.5",
-        api: "claude-code",
-        reasoning: false,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 200000,
-        maxTokens: 8096,
-        providerData: { 'claude-code': { sdkAlias: 'haiku' } },
-      },
-    ],
-  });
+  registerClaudeCodeProvider(pi, providerDeps);
 }
 
 async function buildGuidedExecuteContextInjection(prompt: string, basePath: string): Promise<string | null> {

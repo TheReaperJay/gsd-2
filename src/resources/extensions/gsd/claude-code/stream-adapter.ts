@@ -7,39 +7,26 @@
  * loop's perspective.
  *
  * Key behaviors:
- * - provider_tool_start/provider_tool_end events flow to the Pi stream from
- *   SDK hook callbacks, giving the agent loop visibility into mid-session tools
+ * - Tool visibility via Pi's native ctx.ui.setStatus() — set on PreToolUse,
+ *   cleared on PostToolUse/PostToolUseFailure
  * - The LAST assistant message's text content is emitted as text_start/text_delta/
  *   text_end events — intermediate tool-heavy turns are invisible via text events
- *   (already visible via provider_tool events from hooks)
- * - Supervision (steering queue, idle detection, soft/hard timeouts) is managed
- *   internally — callers see only the Pi stream
+ *   (tool activity is visible via the status footer)
+ * - Supervision uses SDK Query.interrupt()/close() for timeouts
  * - Activity writer captures all turns for crash recovery JSONL
  *
  * Critical invariants:
- * - Pitfall 2: steeringQueue.close() called in finally block
  * - Pitfall 3: Stop hook checks stop_hook_active before blocking (no infinite loop)
  * - Pitfall 6: persistSession: false (no accumulating session history)
  * - Pitfall 7: permissionMode: 'bypassPermissions' with allowDangerouslySkipPermissions: true
- * - maxTurns is NOT set — GSD supervision is time-based via steering channel (LOCKED)
  */
 
-import type { Api, Model, Context, SimpleStreamOptions, AssistantMessage, TextContent } from "@gsd/pi-ai";
+import type { Api, Model, Context, SimpleStreamOptions, AssistantMessage, TextContent, Message } from "@gsd/pi-ai";
 import { createAssistantMessageEventStream } from "@gsd/pi-ai";
 import type { AssistantMessageEventStream } from "@gsd/pi-ai";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { SteeringQueue, WRAPUP_WARNING_TEXT } from "./steering-queue.js";
-import type { SdkUserMessage } from "./steering-queue.js";
 import { SdkActivityWriter } from "./activity-writer.js";
-import { createGsdMcpServer } from "./mcp-tools.js";
-
-// ─── ProviderModelData augmentation ─────────────────────────────────────────
-
-declare module "@gsd/pi-ai" {
-  interface ProviderModelData {
-    "claude-code"?: { sdkAlias: string };
-  }
-}
+import type { GsdProviderDeps } from "../provider-api/types.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -48,6 +35,7 @@ interface GsdToolEvent {
   toolCallId: string;
   toolName: string;
   input?: unknown;
+  result?: unknown;
   isError?: boolean;
 }
 
@@ -136,6 +124,7 @@ function createHookBridge(config: HookBridgeConfig): HookBridgeOutput {
               hook_event_name: string;
               tool_name: string;
               tool_use_id: string;
+              tool_response: unknown;
             };
 
             if (input.hook_event_name !== "PostToolUse") return {};
@@ -143,6 +132,7 @@ function createHookBridge(config: HookBridgeConfig): HookBridgeOutput {
             config.onToolEnd({
               toolCallId: input.tool_use_id,
               toolName: input.tool_name,
+              result: input.tool_response,
               isError: false,
             });
 
@@ -193,24 +183,36 @@ interface StopHookInput {
  * deps object at registration time, but callers (auto.ts/index.ts) set the
  * underlying values before each dispatch.
  */
-export interface StreamAdapterDeps {
-  /** Function to get supervisor config at call time (not captured at registration) */
-  getSupervisorConfig: () => { soft_timeout_minutes?: number; idle_timeout_minutes?: number; hard_timeout_minutes?: number };
-  /** CONTEXT.md write gate */
-  shouldBlockContextWrite: (toolName: string, inputPath: string, milestoneId: string | null, depthVerified: boolean) => { block: boolean; reason?: string };
-  /** Returns current milestone ID */
-  getMilestoneId: () => string | null;
-  /** Returns depth verification status */
-  isDepthVerified: () => boolean;
-  /** Returns whether the unit's required durable artifacts exist — resolved per invocation */
-  getIsUnitDone: () => boolean;
-  /** Tool event callbacks for TUI inFlightTools tracking */
-  onToolStart: (toolCallId: string) => void;
-  onToolEnd: (toolCallId: string) => void;
-  /** Returns project base path — resolved per invocation */
-  getBasePath: () => string;
-  /** Returns unit type and ID for the current dispatch — resolved per invocation */
-  getUnitInfo: () => { unitType: string; unitId: string };
+export interface StreamAdapterDeps extends GsdProviderDeps {
+  /** Pi extension context for native UI updates (tool status footer) */
+  getCtx: () => { ui: { setStatus: (id: string, text: string | undefined) => void } } | null;
+  /** Resolves a Pi model ID to an SDK model alias (e.g. "claude-code:claude-opus-4-6" → "opus") */
+  resolveModelAlias: (modelId: string) => string;
+  /** Creates the MCP server for custom tools from the shared registry */
+  createMcpServer: () => Promise<unknown | undefined>;
+}
+
+// ─── User prompt extraction ──────────────────────────────────────────────────
+
+/**
+ * Extract the text content of the last user message from a Pi message array.
+ * The system prompt is sent separately via options.systemPrompt; this extracts
+ * the actual user prompt (task, query, etc.) that the SDK should process.
+ */
+function extractUserPrompt(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role === "user") {
+      if (typeof msg.content === "string") return msg.content;
+      if (Array.isArray(msg.content)) {
+        return msg.content
+          .filter((c): c is TextContent => c.type === "text")
+          .map(c => c.text)
+          .join("\n");
+      }
+    }
+  }
+  return "";
 }
 
 // ─── createClaudeCodeStream ──────────────────────────────────────────────────
@@ -239,7 +241,7 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
 
     (async () => {
       // ── Resolve SDK alias ─────────────────────────────────────────────────
-      const sdkAlias = (model.providerData?.["claude-code"]?.sdkAlias) ?? "sonnet";
+      const sdkAlias = deps.resolveModelAlias(model.id);
 
       // ── Build output AssistantMessage (same structure as streamAnthropic) ─
       const output: AssistantMessage = {
@@ -270,8 +272,8 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
       const idleTimeoutMs = (supervisor.idle_timeout_minutes ?? 0) * 60 * 1000;
       const hardTimeoutMs = (supervisor.hard_timeout_minutes ?? 0) * 60 * 1000;
 
-      // ── Steering queue ────────────────────────────────────────────────────
-      const steeringQueue = new SteeringQueue(context.systemPrompt ?? "");
+      // ── User prompt ──────────────────────────────────────────────────────
+      const userPrompt = extractUserPrompt(context.messages);
 
       // ── Session tracking ──────────────────────────────────────────────────
       let sessionId: string | null = null;
@@ -326,29 +328,20 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
       // originates — including MCP server creation and SDK import.
       try {
         // ── Hook bridge ───────────────────────────────────────────────────────
-        // Wraps tool callbacks to reset idle clock AND push provider_tool events
-        // to the Pi stream.
+        // Wraps tool callbacks to reset idle clock and update Pi's native
+        // status footer for tool visibility.
         const hookBridge = createHookBridge({
           onToolStart: (event: GsdToolEvent) => {
             lastActivityAt = Date.now();
             deps.onToolStart(event.toolCallId);
-            stream.push({
-              type: "provider_tool_start",
-              toolCallId: event.toolCallId,
-              toolName: event.toolName,
-              args: event.input,
-            });
+            const ctx = deps.getCtx();
+            if (ctx) ctx.ui.setStatus("claude-code-tool", event.toolName.toLowerCase());
           },
           onToolEnd: (event: GsdToolEvent) => {
             lastActivityAt = Date.now();
             deps.onToolEnd(event.toolCallId);
-            stream.push({
-              type: "provider_tool_end",
-              toolCallId: event.toolCallId,
-              toolName: event.toolName,
-              result: event.input ?? null,
-              isError: event.isError ?? false,
-            });
+            const ctx = deps.getCtx();
+            if (ctx) ctx.ui.setStatus("claude-code-tool", undefined);
           },
           shouldBlockContextWrite: deps.shouldBlockContextWrite,
           getMilestoneId: deps.getMilestoneId,
@@ -356,7 +349,7 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
         });
 
         // ── MCP server ────────────────────────────────────────────────────────
-        const mcpServer = await createGsdMcpServer();
+        const mcpServer = await deps.createMcpServer();
 
         // ── Stop hook (Pitfall 3 prevention) ──────────────────────────────────
         /**
@@ -400,70 +393,34 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
         };
 
         // ── Supervision timers ─────────────────────────────────────────────────
+        // Uses SDK Query.interrupt() (graceful) and Query.close() (forceful)
+        // instead of injecting text messages via the prompt iterable.
 
-        // Set up wrapup warning timer (replicates auto.ts lines 2866-2889)
+        // Soft timeout — graceful interrupt lets the agent finish its current thought
         if (softTimeoutMs > 0) {
           wrapupWarningHandle = setTimeout(() => {
             wrapupWarningHandle = null;
-            steeringQueue.push({
-              type: "user",
-              message: { role: "user", content: WRAPUP_WARNING_TEXT },
-              priority: "now",
-              session_id: sessionId ?? "",
-              parent_tool_use_id: null,
-            } as SdkUserMessage);
+            if (queryObj?.interrupt) void queryObj.interrupt();
           }, softTimeoutMs);
         }
 
-        // Set up idle watchdog interval (replicates auto.ts lines 2891-2949)
-        // Fires every 15 seconds and pushes idle recovery steering when idle.
+        // Idle watchdog — fires every 15 seconds, interrupts when idle.
         // lastActivityAt is reset by hook bridge callbacks so tool activity
         // prevents spurious firing.
         if (idleTimeoutMs > 0) {
           idleWatchdogHandle = setInterval(() => {
             const idleMs = Date.now() - lastActivityAt;
             if (idleMs < idleTimeoutMs) return;
-
-            const steeringLines = [
-              `**IDLE RECOVERY — do not stop.**`,
-              `You are still executing ${unitType} ${unitId}.`,
-              "Do not keep exploring.",
-              "Immediately finish the required durable output for this unit.",
-              "If full completion is impossible, write the partial artifact/state needed for recovery and make the blocker explicit.",
-            ];
-
-            steeringQueue.push({
-              type: "user",
-              message: { role: "user", content: steeringLines.join("\n") },
-              priority: "now",
-              session_id: sessionId ?? "",
-              parent_tool_use_id: null,
-            } as SdkUserMessage);
-
+            if (queryObj?.interrupt) void queryObj.interrupt();
             lastActivityAt = Date.now();
           }, 15000);
         }
 
-        // Hard timeout — push a final recovery message to the steering queue
+        // Hard timeout — forceful close terminates the session immediately
         if (hardTimeoutMs > 0) {
           hardTimeoutHandle = setTimeout(() => {
             hardTimeoutHandle = null;
-            steeringQueue.push({
-              type: "user",
-              message: {
-                role: "user",
-                content: [
-                  "**HARD TIMEOUT — unit must wrap up immediately.**",
-                  `You are still executing ${unitType} ${unitId}.`,
-                  "You have exceeded the hard time budget. Finish now.",
-                  "Write the partial artifact/state needed for recovery.",
-                  "Make any blocker explicit.",
-                ].join("\n"),
-              },
-              priority: "now",
-              session_id: sessionId ?? "",
-              parent_tool_use_id: null,
-            } as SdkUserMessage);
+            queryObj?.close?.();
           }, hardTimeoutMs);
         }
 
@@ -474,7 +431,7 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
         let activeContentIndex = -1;
 
         queryObj = query({
-          prompt: steeringQueue,
+          prompt: userPrompt,
           options: queryOptions as unknown as Record<string, unknown>,
         });
 
@@ -577,8 +534,6 @@ export function createClaudeCodeStream(deps: StreamAdapterDeps): (
         stream.push({ type: "error", reason: output.stopReason as "aborted" | "error", error: output });
         stream.end();
       } finally {
-        // Pitfall 2 prevention: always close the steering queue to end the generator
-        steeringQueue.close();
         // Clear supervision timers to prevent post-query firings
         clearSupervisionTimers();
         // Flush activity log to disk for crash recovery
