@@ -31,16 +31,7 @@ export type OAuthCredential = {
 	type: "oauth";
 } & OAuthCredentials;
 
-/**
- * Credential representing a Claude Code installation.
- * No token is stored — presence of this credential signals that Claude Code
- * should be used as the execution provider.
- */
-export type ClaudeCodeCredential = {
-	type: "claude-code";
-};
-
-export type AuthCredential = ApiKeyCredential | OAuthCredential | ClaudeCodeCredential;
+export type AuthCredential = ApiKeyCredential | OAuthCredential;
 
 /**
  * On-disk format: each provider maps to a single credential or an array of credentials.
@@ -392,11 +383,6 @@ export class AuthStorage {
 			const updated = [...existing, credential];
 			this.data[provider] = updated.length === 1 ? updated[0] : updated;
 			this.persistProviderChange(provider, updated.length === 1 ? updated[0] : updated);
-		} else if (credential.type === "claude-code") {
-			// Claude Code: simple set — only one claude-code credential makes sense.
-			// No token is stored; presence of the credential is the signal.
-			this.data[provider] = credential;
-			this.persistProviderChange(provider, credential);
 		} else {
 			// OAuth: replace any existing OAuth credential, keep API keys
 			const existing = this.getCredentialsForProvider(provider);
@@ -726,10 +712,6 @@ export class AuthStorage {
 	): Promise<string | undefined> {
 		if (cred.type === "api_key") {
 			return resolveConfigValue(cred.key);
-		}
-
-		if (cred.type === "claude-code") {
-			return "claude-code-sdk-managed";
 		}
 
 		if (cred.type === "oauth") {

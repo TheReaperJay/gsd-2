@@ -650,7 +650,7 @@ export class ModelRegistry {
 					maxTokens: modelDef.maxTokens,
 					headers,
 					compat: modelDef.compat,
-					} as Model<Api>);
+				} as Model<Api>);
 			}
 
 			// Apply OAuth modifyModels if credentials exist (e.g., to update baseUrl)

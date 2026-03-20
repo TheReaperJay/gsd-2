@@ -20,7 +20,7 @@ after(() => {
 // ─── AUTH-01: shouldRunOnboarding ─────────────────────────────────────────────
 
 test("shouldRunOnboarding returns false when claude-code credential exists in auth storage", () => {
-  const auth = AuthStorage.inMemory({ "claude-code": { type: "claude-code" } });
+  const auth = AuthStorage.inMemory({ "claude-code": { type: "api_key", key: "cli-managed" } });
   assert.equal(shouldRunOnboarding(auth), false);
 });
 

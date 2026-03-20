@@ -626,7 +626,7 @@ async function runClaudeCodeCliCheck(
 
   const emailInfo = result.ok && result.email ? ` (${result.email})` : ''
   p.log.success(`Claude Code${emailInfo} ${pc.green('ready')}`)
-  authStorage.set('claude-code', { type: 'claude-code' })
+  authStorage.set('claude-code', { type: 'api_key', key: 'cli-managed' })
   // Set default model to Claude Opus 4.6 so the TUI boots without "No model selected"
   SettingsManager.create(agentDir).setDefaultModelAndProvider('claude-code', 'claude-code:claude-opus-4-6')
   return true
