@@ -280,9 +280,16 @@ markStartup('ModelRegistry')
 const settingsManager = SettingsManager.create(agentDir)
 markStartup('SettingsManager.create')
 
+// Discover plugin providers before onboarding so the wizard can present them.
+try {
+  const { discoverLocalProviders } = await import('./provider-api/local-discovery.js')
+  await discoverLocalProviders(process.cwd())
+} catch {}
+markStartup('discoverLocalProviders')
+
 // Run onboarding wizard on first launch (no LLM provider configured)
 if (!isPrintMode && shouldRunOnboarding(authStorage, settingsManager.getDefaultProvider())) {
-  await runOnboarding(authStorage)
+  await runOnboarding(authStorage, settingsManager)
 
   // Clean up stdin state left by @clack/prompts.
   // readline.emitKeypressEvents() adds a permanent data listener and
