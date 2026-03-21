@@ -6,8 +6,8 @@
  * side effect of import — discoverLocalProviders() triggers the import.
  */
 
-import { registerProviderInfo } from "../../src/provider-api/provider-registry.js";
-import type { GsdProviderInfo, GsdModel, GsdStreamContext, GsdProviderDeps, GsdEvent } from "../../src/provider-api/types.js";
+import { registerProviderInfo } from "@gsd/provider-api";
+import type { GsdProviderInfo, GsdModel, GsdStreamContext, GsdProviderDeps, GsdEvent } from "@gsd/provider-api";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { existsSync } from "node:fs";

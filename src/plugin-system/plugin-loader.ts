@@ -14,7 +14,7 @@ import type { GsdPluginModule, PluginLoadResult } from "./types.js";
 import { discoverPlugins, getPluginsDir } from "./plugin-discovery.js";
 import { registerPlugin } from "./plugin-registry.js";
 import { createPluginContext } from "./plugin-context-factory.js";
-import { wireProvidersToPI } from "../provider-api/adapter.js";
+import { wireProvidersToPI } from "@gsd/provider-api";
 import { readRegistryState } from "./plugin-state.js";
 
 /**

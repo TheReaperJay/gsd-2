@@ -5,7 +5,7 @@
  * and the provider-api tool registry interface.
  */
 
-import { getGsdTools } from "../../src/provider-api/tool-registry.js";
+import { getGsdTools } from "@gsd/provider-api";
 
 export async function createMcpServerFromRegistry() {
   const { createSdkMcpServer, tool } = await import("@anthropic-ai/claude-agent-sdk");
