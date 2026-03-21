@@ -101,21 +101,21 @@ async function collectEvents(
 
 describe("adapter", () => {
   describe("wireProvidersToPI", () => {
-    it("calls pi.registerProvider for each registered provider info", () => {
+    it("calls pi.registerProvider for each registered provider info", async () => {
       const id = `wire-stub-${Date.now()}`;
       registerProviderInfo(makeTestProvider(id, []));
       const { pi, registered } = makeMockPi();
-      wireProvidersToPI(pi);
+      await wireProvidersToPI(pi);
       assert.ok(registered.has(id), `pi.registerProvider must be called for provider "${id}"`);
     });
   });
 
   describe("provider registration model shape", () => {
-    it("maps GsdModel fields to ProviderModelConfig correctly", () => {
+    it("maps GsdModel fields to ProviderModelConfig correctly", async () => {
       const id = `shape-stub-${Date.now()}`;
       registerProviderInfo(makeTestProvider(id, []));
       const { pi, registered } = makeMockPi();
-      wireProvidersToPI(pi);
+      await wireProvidersToPI(pi);
       const config = registered.get(id) as Record<string, unknown>;
       assert.ok(config, "registered config must exist");
       assert.equal(config["api"], id, "api field must equal provider id");
@@ -158,7 +158,7 @@ describe("adapter", () => {
         },
       } as unknown as ExtensionAPI;
 
-      wireProvidersToPI(pi);
+      await wireProvidersToPI(pi);
 
       if (captured.start) await captured.start({}, mockCtx);
       assert.ok(captured.stream, "streamSimple must be captured");
@@ -201,7 +201,7 @@ describe("adapter", () => {
         },
       } as unknown as ExtensionAPI;
 
-      wireProvidersToPI(pi);
+      await wireProvidersToPI(pi);
       if (captured.start) await captured.start({}, mockCtx);
       assert.ok(captured.stream, "streamSimple must be captured");
 
@@ -226,7 +226,7 @@ describe("adapter", () => {
       setProviderDeps(createMockDeps());
 
       const { pi, registered } = makeMockPi();
-      wireProvidersToPI(pi);
+      await wireProvidersToPI(pi);
 
       const config = registered.get(id) as Record<string, unknown>;
       const streamSimple = config["streamSimple"] as (model: Model<Api>, context: Context) => AssistantMessageEventStream;

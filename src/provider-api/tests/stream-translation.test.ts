@@ -102,7 +102,7 @@ async function runEvents(events: GsdEvent[]): Promise<AssistantMessageEvent[]> {
   registerProviderInfo(makeTestProvider(id, events));
   setProviderDeps(createMockDeps());
   const { pi, registered } = makeMockPi();
-  wireProvidersToPI(pi);
+  await wireProvidersToPI(pi);
   const config = registered.get(id) as Record<string, unknown>;
   const streamSimple = config["streamSimple"] as (model: Model<Api>, context: Context) => AssistantMessageEventStream;
   const stream = streamSimple(makeModel({ id: `${id}:test-model`, provider: id }), makeContext());
