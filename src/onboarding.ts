@@ -13,9 +13,11 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AuthStorage } from '@gsd/pi-coding-agent'
+import type { AuthStorage, SettingsManager } from '@gsd/pi-coding-agent'
 import { renderLogo } from './logo.js'
 import { agentDir } from './app-paths.js'
+import { getRegisteredProviderInfos } from './provider-api/provider-registry.js'
+import type { GsdProviderInfo } from './provider-api/types.js'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -156,7 +158,10 @@ export function shouldRunOnboarding(authStorage: AuthStorage, settingsDefaultPro
   if (settingsDefaultProvider) return false
   // Check if any LLM provider has credentials
   const hasLlmAuth = LLM_PROVIDER_IDS.some(id => authStorage.hasAuth(id))
-  return !hasLlmAuth
+  if (hasLlmAuth) return false
+  // Check plugin providers
+  const hasPluginAuth = getRegisteredProviderInfos().some(pp => authStorage.hasAuth(pp.id))
+  return !hasPluginAuth
 }
 
 /**
@@ -171,7 +176,7 @@ export function shouldRunOnboarding(authStorage: AuthStorage, settingsDefaultPro
  * All steps are skippable. All errors are recoverable.
  * Writes status to stderr during execution.
  */
-export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
+export async function runOnboarding(authStorage: AuthStorage, settingsManager?: SettingsManager): Promise<void> {
   let p: ClackModule
   let pc: PicoModule
   try {
@@ -189,7 +194,7 @@ export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
   // ── LLM Provider Selection ────────────────────────────────────────────────
   let llmConfigured = false
   try {
-    llmConfigured = await runLlmStep(p, pc, authStorage)
+    llmConfigured = await runLlmStep(p, pc, authStorage, settingsManager)
   } catch (err) {
     // User cancelled (Ctrl+C in clack throws) or unexpected error
     if (isCancelError(p, err)) {
@@ -275,7 +280,7 @@ export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
 
 // ─── LLM Authentication Step ──────────────────────────────────────────────────
 
-async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStorage): Promise<boolean> {
+async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStorage, settingsManager?: SettingsManager): Promise<boolean> {
   // Build the OAuth provider list dynamically from what's registered
   const oauthProviders = authStorage.getOAuthProviders()
   const oauthMap = new Map(oauthProviders.map(op => [op.id, op]))
@@ -294,6 +299,21 @@ async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStora
   authOptions.push(
     { value: 'browser', label: 'Sign in with your browser', hint: 'recommended — same login as claude.ai / ChatGPT' },
     { value: 'api-key', label: 'Paste an API key', hint: 'from your provider dashboard' },
+  )
+
+  // Add plugin providers with CLI auth
+  const pluginProviders = getRegisteredProviderInfos()
+  for (const pp of pluginProviders) {
+    if (pp.auth.type === 'cli') {
+      authOptions.push({
+        value: `plugin:${pp.id}`,
+        label: pp.displayName,
+        hint: pp.auth.hint,
+      })
+    }
+  }
+
+  authOptions.push(
     { value: 'skip', label: 'Skip for now', hint: 'use /login inside GSD later' },
   )
 
@@ -338,6 +358,35 @@ async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStora
       : provider === 'openai' ? 'OpenAI'
       : OTHER_PROVIDERS.find(op => op.value === provider)?.label ?? String(provider)
     return await runApiKeyFlow(p, pc, authStorage, provider as string, label)
+  }
+
+  // Plugin provider selected
+  if (typeof method === 'string' && method.startsWith('plugin:')) {
+    const pluginId = method.slice('plugin:'.length)
+    const pp = getRegisteredProviderInfos().find(p2 => p2.id === pluginId)
+    if (!pp) return false
+
+    if (pp.onboard) {
+      return await pp.onboard(p, pc, authStorage)
+    }
+
+    if (pp.auth.type === 'cli') {
+      const s = p.spinner()
+      s.start(`Checking ${pp.displayName}...`)
+      const result = pp.auth.check()
+      if (result.ok) {
+        s.stop(`${pc.green(pp.displayName)} authenticated${result.email ? ` as ${result.email}` : ''}`)
+        authStorage.set(pp.id, pp.auth.credential)
+        if (pp.defaultModel && settingsManager) {
+          settingsManager.setDefaultModelAndProvider(pp.id, pp.defaultModel)
+        }
+        return true
+      } else {
+        s.stop(`${pp.displayName}: ${result.reason}`)
+        p.log.warn(result.instruction)
+        return false
+      }
+    }
   }
 
   return false
