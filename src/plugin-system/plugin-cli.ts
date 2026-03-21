@@ -61,7 +61,13 @@ async function handleAdd(source: string, ctx: ExtensionCommandContext, pi: Exten
 
   try {
     const { manifest } = installPlugin(source);
-    ctx.ui.notify(`Plugin "${manifest.name}" v${manifest.version} installed. Restart GSD to activate.`, "info");
+    const { loadSinglePlugin } = await import("./plugin-loader.js");
+    const loadResult = await loadSinglePlugin(pi, manifest.id);
+    if (loadResult.ok) {
+      ctx.ui.notify(`Plugin "${manifest.name}" v${manifest.version} installed and activated.`, "info");
+    } else {
+      ctx.ui.notify(`Plugin "${manifest.name}" v${manifest.version} installed but failed to activate: ${loadResult.message}`, "warning");
+    }
   } catch (err) {
     ctx.ui.notify(`Failed to install plugin: ${err instanceof Error ? err.message : String(err)}`, "error");
   }
