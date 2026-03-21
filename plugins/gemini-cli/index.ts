@@ -5,7 +5,7 @@
  * and wires it to Pi for streaming.
  */
 
-import type { GsdPluginContext } from "../../src/plugin-system/types.js";
+import type { GsdPluginContext } from "@gsd/provider-api";
 
 export default async function(ctx: GsdPluginContext): Promise<void> {
   await import("./info.js");

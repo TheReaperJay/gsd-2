@@ -7,9 +7,7 @@
 
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import type { GsdPluginContext, GsdPluginManifest } from "./types.js";
-import { registerProviderInfo, setProviderDeps, getProviderDeps } from "../provider-api/provider-registry.js";
-import { registerGsdTool } from "../provider-api/tool-registry.js";
-import { wireProvidersToPI } from "../provider-api/adapter.js";
+import { registerProviderInfo, setProviderDeps, getProviderDeps, registerGsdTool, wireProvidersToPI } from "@gsd/provider-api";
 
 export function createPluginContext(
   pi: ExtensionAPI,

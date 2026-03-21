@@ -282,7 +282,7 @@ markStartup('SettingsManager.create')
 
 // Discover plugin providers before onboarding so the wizard can present them.
 try {
-  const { discoverLocalProviders } = await import('./provider-api/local-discovery.js')
+  const { discoverLocalProviders } = await import('@gsd/provider-api')
   await discoverLocalProviders(process.cwd())
 } catch {}
 markStartup('discoverLocalProviders')

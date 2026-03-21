@@ -8,8 +8,8 @@
  * Self-registers via registerProviderInfo() as a side effect of import.
  */
 
-import { registerProviderInfo } from "../../src/provider-api/provider-registry.js";
-import type { GsdProviderInfo, GsdModel, GsdStreamContext, GsdProviderDeps, GsdEvent } from "../../src/provider-api/types.js";
+import { registerProviderInfo } from "@gsd/provider-api";
+import type { GsdProviderInfo, GsdModel, GsdStreamContext, GsdProviderDeps, GsdEvent } from "@gsd/provider-api";
 import { spawnSync, spawn } from "node:child_process";
 
 // ─── Auth check ───────────────────────────────────────────────────────────────

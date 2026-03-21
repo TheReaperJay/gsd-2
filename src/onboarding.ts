@@ -16,8 +16,8 @@ import { dirname, join } from 'node:path'
 import type { AuthStorage, SettingsManager } from '@gsd/pi-coding-agent'
 import { renderLogo } from './logo.js'
 import { agentDir } from './app-paths.js'
-import { getRegisteredProviderInfos } from './provider-api/provider-registry.js'
-import type { GsdProviderInfo } from './provider-api/types.js'
+import { getRegisteredProviderInfos } from '@gsd/provider-api'
+import type { GsdProviderInfo } from '@gsd/provider-api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

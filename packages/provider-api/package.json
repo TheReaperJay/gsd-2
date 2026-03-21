@@ -1,0 +1,21 @@
+{
+  "name": "@gsd/provider-api",
+  "version": "1.0.0",
+  "description": "GSD provider API contracts, registry, and adapter",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@gsd/pi-ai": "*",
+    "@gsd/pi-coding-agent": "*"
+  }
+}
