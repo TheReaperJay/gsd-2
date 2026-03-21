@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
+import { dirname, join } from "node:path";
 
 import { handleAutoCommand } from "./handlers/auto.js";
 import { handleCoreCommand } from "./handlers/core.js";
@@ -36,7 +37,6 @@ async function handlePluginCommand(trimmed: string, ctx: ExtensionCommandContext
   const binPath = process.env.GSD_BIN_PATH;
   if (!binPath) return false;
   try {
-    const { dirname, join } = require("node:path");
     const cliPath = join(dirname(binPath), "plugin-system", "plugin-cli.js");
     const { handlePlugin } = await import(cliPath);
     await handlePlugin(trimmed.replace(/^plugin\s*/, "").trim(), ctx, pi);

@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
+import { dirname, join } from "node:path";
 
 import { registerGSDCommand } from "../commands.js";
 import { registerExitCommand } from "../exit-command.js";
@@ -50,7 +51,6 @@ export function registerGsdExtension(pi: ExtensionAPI): void {
   // If GSD_BIN_PATH is unset or plugin-system doesn't exist, silently skip.
   const binPath = process.env.GSD_BIN_PATH;
   if (binPath) {
-    const { dirname, join } = require("node:path");
     const loaderPath = join(dirname(binPath), "plugin-system", "plugin-loader.js");
     import(loaderPath)
       .then(({ loadPlugins }) => loadPlugins(pi))
