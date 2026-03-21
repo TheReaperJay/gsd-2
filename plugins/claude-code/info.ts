@@ -12,8 +12,8 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { SdkActivityWriter } from "./activity-writer.js";
-import { createMcpServerFromRegistry } from "./mcp-tools.js";
+import { SdkActivityWriter } from "./activity-writer.ts";
+import { createMcpServerFromRegistry } from "./mcp-tools.ts";
 
 // ─── Auth check ───────────────────────────────────────────────────────────────
 

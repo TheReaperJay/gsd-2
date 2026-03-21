@@ -1,36 +1,80 @@
 /**
  * Plugin installer — add, remove, enable, disable plugins.
  *
- * Handles fetching from npm/git/local, validating plugin.json,
+ * Handles fetching from bundled/npm/git/local, validating plugin.json,
  * installing npm dependencies, and managing registry state.
+ *
+ * Short names (e.g. "claude-code") resolve to bundled plugins shipped
+ * in GSD's plugins/ directory by matching the "id" field in plugin.json.
  */
 
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { join, resolve } from "node:path";
-import { homedir, tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import type { GsdPluginManifest } from "./types.js";
 import { getPluginsDir } from "./plugin-discovery.js";
 import { setPluginEnabled, readRegistryState, writeRegistryState } from "./plugin-state.js";
 
-function detectSourceType(source: string): "npm" | "git" | "local" {
+function getPackageRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  while (dir !== dirname(dir)) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    dir = dirname(dir);
+  }
+  throw new Error("Could not find GSD package root");
+}
+
+function getBundledPluginsDir(): string {
+  return join(getPackageRoot(), "plugins");
+}
+
+function resolveBundledPlugin(name: string): string | null {
+  const bundledDir = getBundledPluginsDir();
+  let entries: string[];
+  try {
+    entries = readdirSync(bundledDir).filter(d => {
+      try { return statSync(join(bundledDir, d)).isDirectory(); }
+      catch { return false; }
+    });
+  } catch { return null; }
+
+  for (const dir of entries) {
+    const manifestPath = join(bundledDir, dir, "plugin.json");
+    if (!existsSync(manifestPath)) continue;
+    try {
+      const raw = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      if (raw.id === name) return join(bundledDir, dir);
+    } catch { continue; }
+  }
+  return null;
+}
+
+function detectSourceType(source: string): "bundled" | "npm" | "git" | "local" {
   if (source.startsWith("git@") || source.startsWith("https://") || source.startsWith("git://")) return "git";
   if (existsSync(resolve(source))) return "local";
+  if (resolveBundledPlugin(source)) return "bundled";
   return "npm";
 }
 
-function fetchToTemp(source: string, sourceType: "npm" | "git" | "local"): string {
+function fetchToTemp(source: string, sourceType: "bundled" | "npm" | "git" | "local"): string {
   const tempDir = join(tmpdir(), `gsd-plugin-${Date.now()}`);
   mkdirSync(tempDir, { recursive: true });
 
   switch (sourceType) {
+    case "bundled": {
+      const bundledPath = resolveBundledPlugin(source)!;
+      cpSync(bundledPath, tempDir, { recursive: true });
+      break;
+    }
     case "local":
       cpSync(resolve(source), tempDir, { recursive: true });
       break;
     case "git":
       execSync(`git clone --depth 1 ${source} ${tempDir}`, { encoding: "utf-8", stdio: "pipe" });
       break;
-    case "npm":
+    case "npm": {
       execSync(`npm pack ${source} --pack-destination ${tempDir}`, { encoding: "utf-8", stdio: "pipe" });
       const tarball = readdirSync(tempDir).find(f => f.endsWith(".tgz"));
       if (!tarball) throw new Error(`npm pack produced no tarball for ${source}`);
@@ -46,6 +90,7 @@ function fetchToTemp(source: string, sourceType: "npm" | "git" | "local"): strin
       const tgzPath = join(tempDir, tarball);
       if (existsSync(tgzPath)) rmSync(tgzPath);
       break;
+    }
   }
 
   return tempDir;

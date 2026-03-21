@@ -17,6 +17,10 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { createJiti } from "@mariozechner/jiti";
+
+const jiti = createJiti(fileURLToPath(import.meta.url), { interopDefault: true, debug: false });
 
 /** Directories that are never providers. */
 const SKIP = new Set(["tests", "prompts", "node_modules"]);
@@ -66,7 +70,7 @@ export async function discoverLocalProviders(projectRoot?: string): Promise<stri
       if (!infoFile) continue;
 
       try {
-        await import(join(dirPath, infoFile));
+        await jiti.import(join(dirPath, infoFile), {});
         loaded.push(dir);
       } catch (err) {
         process.stderr.write(

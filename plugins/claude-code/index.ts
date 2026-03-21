@@ -9,7 +9,7 @@ import type { GsdPluginContext } from "@gsd/provider-api";
 
 export default async function(ctx: GsdPluginContext): Promise<void> {
   // Import triggers registerProviderInfo() side effect
-  await import("./info.js");
+  await import("./info.ts");
 
   // Wire provider to Pi so models appear in model registry
   await ctx.provider.wireProvidersToPI();

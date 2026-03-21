@@ -2,7 +2,7 @@
  * GSD Plugin System — public API.
  */
 
-export { loadPlugins } from "./plugin-loader.js";
+export { loadPlugins, loadSinglePlugin } from "./plugin-loader.js";
 export { handlePlugin } from "./plugin-cli.js";
 export { discoverPlugins } from "./plugin-discovery.js";
 export { getPlugins, getPluginById } from "./plugin-registry.js";
