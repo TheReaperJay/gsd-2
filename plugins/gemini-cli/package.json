@@ -1,0 +1,6 @@
+{
+  "name": "gsd-plugin-gemini-cli",
+  "private": true,
+  "type": "module",
+  "dependencies": {}
+}
