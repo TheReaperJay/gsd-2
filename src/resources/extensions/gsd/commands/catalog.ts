@@ -64,7 +64,6 @@ export const TOP_LEVEL_SUBCOMMANDS: readonly GsdCommandDefinition[] = [
   { cmd: "start", desc: "Start a workflow template (bugfix, spike, feature, etc.)" },
   { cmd: "templates", desc: "List available workflow templates" },
   { cmd: "extensions", desc: "Manage extensions (list, enable, disable, info)" },
-  { cmd: "plugin", desc: "Manage plugins (list, add, remove, enable, disable)" },
 ];
 
 const NESTED_COMPLETIONS: CompletionMap = {
@@ -189,14 +188,6 @@ const NESTED_COMPLETIONS: CompletionMap = {
     { cmd: "over", desc: "Model was overqualified for this task" },
     { cmd: "ok", desc: "Model was appropriate for this task" },
     { cmd: "under", desc: "Model was underqualified for this task" },
-  ],
-  plugin: [
-    { cmd: "list", desc: "List installed plugins and their status" },
-    { cmd: "add", desc: "Install a plugin from npm, git, or local path" },
-    { cmd: "remove", desc: "Remove an installed plugin" },
-    { cmd: "enable", desc: "Enable a disabled plugin" },
-    { cmd: "disable", desc: "Disable a plugin without removing it" },
-    { cmd: "info", desc: "Show detailed plugin information" },
   ],
 };
 

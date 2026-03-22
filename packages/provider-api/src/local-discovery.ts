@@ -5,7 +5,7 @@
  * info.ts/info.js file is treated as a provider. The info module
  * self-registers via registerProviderInfo() as a side effect of import.
  *
- * Scan order: plugins -> global providers -> project-local providers.
+ * Scan order: extensions -> providers -> project-local providers.
  * Because registerProviderInfo() upserts by ID, the last write wins — project-local
  * providers override global providers on ID conflict.
  *
@@ -28,10 +28,15 @@ const SKIP = new Set(["tests", "prompts", "node_modules"]);
 /**
  * Discover and import local provider info modules.
  *
- * Scans three locations in order: ~/.gsd/plugins/ (installed plugins),
+ * Scans in order: ~/.gsd/agent/extensions/ (bundled + installed extensions),
  * ~/.gsd/providers/ (global providers), and (if projectRoot provided)
  * project-local .gsd/providers/. Project-local providers override global
  * providers on ID conflict via upsert semantics.
+ *
+ * The extensions/ scan runs BEFORE extensions fully load via Pi (which
+ * happens in createAgentSession). This allows provider extensions to
+ * participate in onboarding by registering their GsdProviderInfo early
+ * via info.ts side-effect imports.
  *
  * Returns the list of successfully loaded provider directory names.
  */
@@ -39,8 +44,8 @@ export async function discoverLocalProviders(projectRoot?: string): Promise<stri
   const loaded: string[] = [];
 
   const locations: string[] = [
-    join(homedir(), ".gsd", "plugins"),         // installed plugins
-    join(homedir(), ".gsd", "providers"),        // global providers
+    join(homedir(), ".gsd", "agent", "extensions"), // bundled + installed extensions
+    join(homedir(), ".gsd", "providers"),            // global providers
   ];
   if (projectRoot) {
     locations.push(join(projectRoot, ".gsd", "providers")); // project-local (wins on ID conflict)

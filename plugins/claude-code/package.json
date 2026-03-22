@@ -1,7 +1,10 @@
 {
-  "name": "gsd-plugin-claude-code",
+  "name": "gsd-provider-claude-code",
   "private": true,
   "type": "module",
+  "pi": {
+    "extensions": ["index.ts"]
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.79"
   }

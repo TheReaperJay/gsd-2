@@ -1,6 +1,9 @@
 {
-  "name": "gsd-plugin-gemini-cli",
+  "name": "gsd-provider-gemini-cli",
   "private": true,
   "type": "module",
+  "pi": {
+    "extensions": ["index.ts"]
+  },
   "dependencies": {}
 }

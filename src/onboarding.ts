@@ -278,6 +278,51 @@ export async function runOnboarding(authStorage: AuthStorage, settingsManager?: 
   p.outro(pc.dim('Launching GSD...'))
 }
 
+// ─── Provider Onboarding ──────────────────────────────────────────────────────
+
+/**
+ * Runs the onboarding flow for a single registered plugin provider.
+ *
+ * If the provider declares a custom `onboard()` function, that is called and its
+ * boolean result is wrapped in `{ ok }`. Otherwise, the default CLI auth flow runs:
+ * spinner, check(), credential storage, and optional default model setting.
+ *
+ * Callable from both first-run onboarding (via runLlmStep) and post-install
+ * extension onboarding (via handleInstall).
+ */
+export async function runProviderOnboarding(
+  pp: GsdProviderInfo,
+  p: ClackModule,
+  pc: PicoModule,
+  authStorage: AuthStorage,
+  settingsManager?: SettingsManager,
+): Promise<{ ok: boolean }> {
+  if (pp.onboard) {
+    const result = await pp.onboard(p, pc, authStorage)
+    return { ok: result }
+  }
+
+  if (pp.auth.type === 'cli') {
+    const s = p.spinner()
+    s.start(`Checking ${pp.displayName}...`)
+    const result = pp.auth.check()
+    if (result.ok) {
+      s.stop(`${pc.green(pp.displayName)} authenticated${result.email ? ` as ${result.email}` : ''}`)
+      authStorage.set(pp.id, pp.auth.credential)
+      if (pp.defaultModel && settingsManager) {
+        settingsManager.setDefaultModelAndProvider(pp.id, pp.defaultModel)
+      }
+      return { ok: true }
+    } else {
+      s.stop(`${pp.displayName}: ${result.reason}`)
+      p.log.warn(result.instruction)
+      return { ok: false }
+    }
+  }
+
+  return { ok: true }
+}
+
 // ─── LLM Authentication Step ──────────────────────────────────────────────────
 
 async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStorage, settingsManager?: SettingsManager): Promise<boolean> {
@@ -366,27 +411,8 @@ async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStora
     const pp = getRegisteredProviderInfos().find(p2 => p2.id === pluginId)
     if (!pp) return false
 
-    if (pp.onboard) {
-      return await pp.onboard(p, pc, authStorage)
-    }
-
-    if (pp.auth.type === 'cli') {
-      const s = p.spinner()
-      s.start(`Checking ${pp.displayName}...`)
-      const result = pp.auth.check()
-      if (result.ok) {
-        s.stop(`${pc.green(pp.displayName)} authenticated${result.email ? ` as ${result.email}` : ''}`)
-        authStorage.set(pp.id, pp.auth.credential)
-        if (pp.defaultModel && settingsManager) {
-          settingsManager.setDefaultModelAndProvider(pp.id, pp.defaultModel)
-        }
-        return true
-      } else {
-        s.stop(`${pp.displayName}: ${result.reason}`)
-        p.log.warn(result.instruction)
-        return false
-      }
-    }
+    const result = await runProviderOnboarding(pp, p, pc, authStorage, settingsManager)
+    return result.ok
   }
 
   return false

@@ -1,6 +1,4 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
-import { dirname, join } from "node:path";
-
 import { registerGSDCommand } from "../commands.js";
 import { registerExitCommand } from "../exit-command.js";
 import { registerWorktreeCommand } from "../worktree-command.js";
@@ -43,21 +41,5 @@ export function registerGsdExtension(pi: ExtensionAPI): void {
   registerDbTools(pi);
   registerShortcuts(pi);
   registerHooks(pi);
-
-  // Load plugins if plugin-system is installed.
-  // Resolves from GSD_BIN_PATH (dist/loader.js) → dist/plugin-system/plugin-loader.js.
-  // If GSD_BIN_PATH is unset or plugin-system doesn't exist, silently skip.
-  const binPath = process.env.GSD_BIN_PATH;
-  if (binPath) {
-    const loaderPath = join(dirname(binPath), "plugin-system", "plugin-loader.js");
-    import(loaderPath)
-      .then(({ loadPlugins }) => loadPlugins(pi))
-      .then((result: { errors: Array<{ pluginId: string; message: string }> }) => {
-        for (const err of result.errors) {
-          process.stderr.write(`[gsd:plugin] ${err.pluginId}: ${err.message}\n`);
-        }
-      })
-      .catch(() => {});
-  }
 }
 

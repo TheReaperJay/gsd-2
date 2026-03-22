@@ -1,18 +1,17 @@
 /**
- * Claude Code plugin entry point.
+ * Claude Code extension entry point.
  *
- * Loaded by the GSD plugin system. Registers the Claude Code provider
+ * Loaded by Pi's extension system. Registers the Claude Code provider
  * and wires it to Pi for streaming.
  */
 
-import type { GsdPluginContext } from "@gsd/provider-api";
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
+import { wireProvidersToPI } from "@gsd/provider-api";
 
-export default async function(ctx: GsdPluginContext): Promise<void> {
+export default async function(pi: ExtensionAPI): Promise<void> {
   // Import triggers registerProviderInfo() side effect
   await import("./info.ts");
 
-  // Wire provider to Pi so models appear in model registry
-  await ctx.provider.wireProvidersToPI();
-
-  ctx.log("info", "Claude Code provider loaded (3 models)");
+  // Wire registered providers to Pi so models appear in model registry
+  await wireProvidersToPI(pi);
 }

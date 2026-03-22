@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
-import { dirname, join } from "node:path";
 
 import { handleAutoCommand } from "./handlers/auto.js";
 import { handleCoreCommand } from "./handlers/core.js";
@@ -20,7 +19,6 @@ export async function handleGSDCommand(
     () => handleParallelCommand(trimmed, ctx, pi),
     () => handleWorkflowCommand(trimmed, ctx, pi),
     () => handleOpsCommand(trimmed, ctx, pi),
-    () => handlePluginCommand(trimmed, ctx, pi),
   ];
 
   for (const handler of handlers) {
@@ -31,18 +29,3 @@ export async function handleGSDCommand(
 
   ctx.ui.notify(`Unknown: /gsd ${trimmed}. Run /gsd help for available commands.`, "warning");
 }
-
-async function handlePluginCommand(trimmed: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<boolean> {
-  if (!trimmed.startsWith("plugin")) return false;
-  const binPath = process.env.GSD_BIN_PATH;
-  if (!binPath) return false;
-  try {
-    const cliPath = join(dirname(binPath), "plugin-system", "plugin-cli.js");
-    const { handlePlugin } = await import(cliPath);
-    await handlePlugin(trimmed.replace(/^plugin\s*/, "").trim(), ctx, pi);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
