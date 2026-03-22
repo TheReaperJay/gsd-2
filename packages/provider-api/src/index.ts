@@ -32,9 +32,3 @@ export { defineGsdTool } from "./define-tool.js";
 export { wireProvidersToPI } from "./adapter.js";
 
 export { discoverLocalProviders } from "./local-discovery.js";
-
-export type {
-  GsdPluginManifest,
-  GsdPluginContext,
-  GsdPluginFactory,
-} from "./plugin-types.js";

@@ -1,15 +1,17 @@
 /**
  * GSD Extensions Command — /gsd extensions
  *
- * Manage the extension registry: list, enable, disable, info.
+ * Manage the extension registry: list, enable, disable, info, install, remove.
  * Self-contained — no imports outside the extensions tree (extensions are loaded
  * via jiti at runtime from ~/.gsd/agent/, not compiled by tsc).
  */
 
 import type { ExtensionCommandContext } from "@gsd/pi-coding-agent";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { execSync } from "node:child_process";
 import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 
 const gsdHome = process.env.GSD_HOME || join(homedir(), ".gsd");
 
@@ -27,6 +29,11 @@ interface ExtensionManifest {
     commands?: string[];
     hooks?: string[];
     shortcuts?: string[];
+    provider?: {
+      id: string;
+      authType: string;
+      defaultModel?: string;
+    };
   };
   dependencies?: {
     extensions?: string[];
@@ -112,6 +119,61 @@ function discoverManifests(): Map<string, ExtensionManifest> {
   return manifests;
 }
 
+// ─── Install helpers ────────────────────────────────────────────────────────
+
+function detectSourceType(source: string): "npm" | "git" | "local" {
+  if (source.startsWith("git@") || source.startsWith("https://") || source.startsWith("git://")) return "git";
+  if (existsSync(resolve(source))) return "local";
+  return "npm";
+}
+
+function fetchToTemp(source: string, sourceType: "npm" | "git" | "local"): string {
+  const tempDir = join(tmpdir(), `gsd-ext-${Date.now()}`);
+  mkdirSync(tempDir, { recursive: true });
+
+  switch (sourceType) {
+    case "local":
+      cpSync(resolve(source), tempDir, { recursive: true });
+      break;
+    case "git":
+      execSync(`git clone --depth 1 ${source} ${tempDir}`, { encoding: "utf-8", stdio: "pipe" });
+      break;
+    case "npm": {
+      execSync(`npm pack ${source} --pack-destination ${tempDir}`, { encoding: "utf-8", stdio: "pipe" });
+      const tarball = readdirSync(tempDir).find(f => f.endsWith(".tgz"));
+      if (!tarball) throw new Error(`npm pack produced no tarball for ${source}`);
+      execSync(`tar -xzf ${join(tempDir, tarball)} -C ${tempDir}`, { encoding: "utf-8", stdio: "pipe" });
+      const packageDir = join(tempDir, "package");
+      if (existsSync(packageDir)) {
+        for (const f of readdirSync(packageDir)) {
+          cpSync(join(packageDir, f), join(tempDir, f), { recursive: true });
+        }
+        rmSync(packageDir, { recursive: true, force: true });
+      }
+      const tgzPath = join(tempDir, tarball);
+      if (existsSync(tgzPath)) rmSync(tgzPath);
+      break;
+    }
+  }
+
+  return tempDir;
+}
+
+function findManifest(dir: string): ExtensionManifest {
+  const manifestPath = join(dir, "extension-manifest.json");
+  if (!existsSync(manifestPath)) {
+    throw new Error(`No extension-manifest.json found in ${dir}`);
+  }
+
+  const raw = JSON.parse(readFileSync(manifestPath, "utf-8"));
+
+  if (!raw.id || !raw.name || !raw.version) {
+    throw new Error("extension-manifest.json missing required fields (id, name, version)");
+  }
+
+  return raw as ExtensionManifest;
+}
+
 // ─── Command Handler ────────────────────────────────────────────────────────
 
 export async function handleExtensions(args: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -138,8 +200,18 @@ export async function handleExtensions(args: string, ctx: ExtensionCommandContex
     return;
   }
 
+  if (subCmd === "install") {
+    await handleInstall(parts.slice(1).join(" "), ctx);
+    return;
+  }
+
+  if (subCmd === "remove") {
+    handleRemove(parts[1], ctx);
+    return;
+  }
+
   ctx.ui.notify(
-    `Unknown: /gsd extensions ${subCmd}. Usage: /gsd extensions [list|enable|disable|info]`,
+    `Unknown: /gsd extensions ${subCmd}. Usage: /gsd extensions [list|enable|disable|info|install|remove]`,
     "warning",
   );
 }
@@ -161,13 +233,15 @@ function handleList(ctx: ExtensionCommandContext): void {
   });
 
   const lines: string[] = [];
-  const hdr = padRight("Extensions", 38) + padRight("Status", 10) + padRight("Tier", 10) + padRight("Tools", 7) + "Commands";
+  const hdr = padRight("Extensions", 38) + padRight("Status", 10) + padRight("Tier", 12) + padRight("Tools", 7) + "Commands";
   lines.push(hdr);
   lines.push("─".repeat(hdr.length));
 
   for (const m of sorted) {
     const enabled = isEnabled(registry, m.id);
     const status = enabled ? "enabled" : "disabled";
+    const source = registry.entries[m.id]?.source ?? "bundled";
+    const tierLabel = source === "user" ? "user" : m.tier;
     const toolCount = m.provides?.tools?.length ?? 0;
     const cmdCount = m.provides?.commands?.length ?? 0;
     const label = `${m.id} (${m.name})`;
@@ -175,7 +249,7 @@ function handleList(ctx: ExtensionCommandContext): void {
     lines.push(
       padRight(label, 38) +
       padRight(status, 10) +
-      padRight(m.tier, 10) +
+      padRight(tierLabel, 12) +
       padRight(String(toolCount), 7) +
       String(cmdCount),
     );
@@ -284,6 +358,7 @@ function handleInfo(id: string | undefined, ctx: ExtensionCommandContext): void 
     `  Version:     ${manifest.version}`,
     `  Description: ${manifest.description}`,
     `  Tier:        ${manifest.tier}`,
+    `  Source:      ${entry?.source ?? "bundled"}`,
     `  Status:      ${enabled ? "enabled" : "disabled"}`,
   ];
 
@@ -309,6 +384,11 @@ function handleInfo(id: string | undefined, ctx: ExtensionCommandContext): void 
     if (manifest.provides.shortcuts?.length) {
       lines.push(`    Shortcuts: ${manifest.provides.shortcuts.join(", ")}`);
     }
+    if (manifest.provides.provider) {
+      const p = manifest.provides.provider;
+      lines.push(`    Provider:  ${p.id} (${p.authType})`);
+      if (p.defaultModel) lines.push(`    Default:   ${p.defaultModel}`);
+    }
   }
 
   if (manifest.dependencies) {
@@ -323,6 +403,101 @@ function handleInfo(id: string | undefined, ctx: ExtensionCommandContext): void 
   }
 
   ctx.ui.notify(lines.join("\n"), "info");
+}
+
+async function handleInstall(source: string, ctx: ExtensionCommandContext): Promise<void> {
+  if (!source) {
+    ctx.ui.notify("Usage: /gsd extensions install <npm-package | git-url | local-path>", "warning");
+    return;
+  }
+
+  ctx.ui.notify(`Installing extension from: ${source}...`, "info");
+
+  let tempDir: string | null = null;
+  try {
+    const sourceType = detectSourceType(source);
+    tempDir = fetchToTemp(source, sourceType);
+    const manifest = findManifest(tempDir);
+
+    const extDir = getAgentExtensionsDir();
+    const targetDir = join(extDir, manifest.id);
+
+    if (existsSync(targetDir)) {
+      const existingManifest = readManifest(targetDir);
+      const registry = loadRegistry();
+      const entry = registry.entries[manifest.id];
+      if (entry?.source !== "user" && existingManifest) {
+        throw new Error(`Extension "${manifest.id}" is a bundled extension and cannot be overwritten. Use a different ID.`);
+      }
+      rmSync(targetDir, { recursive: true, force: true });
+    }
+
+    mkdirSync(extDir, { recursive: true });
+    cpSync(tempDir, targetDir, { recursive: true });
+
+    // Install npm dependencies if package.json exists
+    const pkgJsonPath = join(targetDir, "package.json");
+    if (existsSync(pkgJsonPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+        if (pkg.dependencies && Object.keys(pkg.dependencies).length > 0) {
+          execSync("npm install --production", { cwd: targetDir, encoding: "utf-8", stdio: "pipe" });
+        }
+      } catch { /* non-fatal — deps may already be available via GSD's node_modules */ }
+    }
+
+    // Register in extension registry as user-installed
+    const registry = loadRegistry();
+    registry.entries[manifest.id] = { id: manifest.id, enabled: true, source: "user" };
+    saveRegistry(registry);
+
+    ctx.ui.notify(
+      `Extension "${manifest.name}" v${manifest.version} installed. Restart GSD to activate.`,
+      "info",
+    );
+  } catch (err) {
+    ctx.ui.notify(`Failed to install: ${err instanceof Error ? err.message : String(err)}`, "error");
+  } finally {
+    if (tempDir) {
+      try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* cleanup */ }
+    }
+  }
+}
+
+function handleRemove(id: string | undefined, ctx: ExtensionCommandContext): void {
+  if (!id) {
+    ctx.ui.notify("Usage: /gsd extensions remove <id>", "warning");
+    return;
+  }
+
+  const registry = loadRegistry();
+  const entry = registry.entries[id];
+
+  if (entry && entry.source !== "user") {
+    ctx.ui.notify(`Cannot remove "${id}" — only user-installed extensions can be removed.`, "warning");
+    return;
+  }
+
+  const extDir = join(getAgentExtensionsDir(), id);
+  if (!existsSync(extDir)) {
+    ctx.ui.notify(`Extension "${id}" not found.`, "warning");
+    return;
+  }
+
+  // Verify it's user-installed if no registry entry (safety check)
+  if (!entry) {
+    const manifest = readManifest(extDir);
+    if (manifest && (manifest.tier === "core" || manifest.tier === "bundled")) {
+      ctx.ui.notify(`Cannot remove "${id}" — it is a ${manifest.tier} extension.`, "warning");
+      return;
+    }
+  }
+
+  rmSync(extDir, { recursive: true, force: true });
+  delete registry.entries[id];
+  saveRegistry(registry);
+
+  ctx.ui.notify(`Extension "${id}" removed. Restart GSD for full effect.`, "info");
 }
 
 function padRight(str: string, len: number): string {

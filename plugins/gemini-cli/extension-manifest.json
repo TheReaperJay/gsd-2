@@ -1,0 +1,18 @@
+{
+  "id": "gemini-cli",
+  "name": "Gemini CLI Provider",
+  "version": "1.0.0",
+  "description": "Access Gemini models through Gemini CLI subscription",
+  "tier": "community",
+  "requires": { "platform": ">=2.39.0" },
+  "provides": {
+    "provider": {
+      "id": "gemini-cli",
+      "authType": "cli",
+      "defaultModel": "gemini-cli:gemini-2.5-pro"
+    }
+  },
+  "dependencies": {
+    "runtime": ["gemini"]
+  }
+}

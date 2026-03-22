@@ -11,7 +11,7 @@ import { getDiscussionMilestoneId } from "../guided-flow.js";
 import { loadToolApiKeys } from "../commands-config.js";
 import { loadFile, saveFile, formatContinue } from "../files.js";
 import { deriveState } from "../state.js";
-import { getAutoDashboardData, isAutoActive, isAutoPaused, markToolEnd, markToolStart } from "../auto.js";
+import { buildProviderDeps, getAutoDashboardData, isAutoActive, isAutoPaused, markToolEnd, markToolStart } from "../auto.js";
 import { isParallelActive, shutdownParallel } from "../parallel-orchestrator.js";
 import { checkToolCallLoop, resetToolCallLoopGuard } from "./tool-call-loop-guard.js";
 import { saveActivityLog } from "../activity-log.js";
@@ -62,6 +62,16 @@ export function registerHooks(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (event, ctx: ExtensionContext) => {
+    // Wire supervision deps so provider extensions (e.g. claude-code)
+    // receive timeout/write-gate/tool-tracking context.
+    const deps = buildProviderDeps();
+    if (deps) {
+      try {
+        const { setProviderDeps } = await import("@gsd/provider-api");
+        setProviderDeps(deps);
+      } catch { /* provider-api not available — non-fatal */ }
+    }
+
     return buildBeforeAgentStartResult(event, ctx);
   });
 

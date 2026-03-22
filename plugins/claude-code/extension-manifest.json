@@ -1,0 +1,18 @@
+{
+  "id": "claude-code",
+  "name": "Claude Code Provider",
+  "version": "1.0.0",
+  "description": "Access Claude models through Claude Code CLI subscription",
+  "tier": "community",
+  "requires": { "platform": ">=2.39.0" },
+  "provides": {
+    "provider": {
+      "id": "claude-code",
+      "authType": "cli",
+      "defaultModel": "claude-code:claude-opus-4-6"
+    }
+  },
+  "dependencies": {
+    "runtime": ["claude"]
+  }
+}

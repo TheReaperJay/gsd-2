@@ -400,6 +400,45 @@ export function getOldestInFlightToolAgeMs(): number {
 }
 
 /**
+ * Build a GsdProviderDeps object from the current auto-mode state.
+ *
+ * Called by register-hooks before each agent turn so that provider
+ * extensions (e.g. claude-code) receive supervision context without
+ * importing auto.ts internals.
+ *
+ * Returns null if auto-mode is not active (no supervision to provide).
+ */
+export function buildProviderDeps(): {
+  getSupervisorConfig: () => { soft_timeout_minutes?: number; idle_timeout_minutes?: number; hard_timeout_minutes?: number };
+  shouldBlockContextWrite: (toolName: string, inputPath: string, milestoneId: string | null, depthVerified: boolean) => { block: boolean; reason?: string };
+  getMilestoneId: () => string | null;
+  isDepthVerified: () => boolean;
+  getIsUnitDone: () => boolean;
+  onToolStart: (toolCallId: string) => void;
+  onToolEnd: (toolCallId: string) => void;
+  getBasePath: () => string;
+  getUnitInfo: () => { unitType: string; unitId: string };
+} | null {
+  if (!s.active || !s.currentUnit) return null;
+
+  const { shouldBlockContextWrite: blockCtxWrite, isDepthVerified: depthCheck } = require("./bootstrap/write-gate.js");
+  const { resolveAutoSupervisorConfig } = require("./preferences-models.js");
+
+  const unit = s.currentUnit;
+  return {
+    getSupervisorConfig: resolveAutoSupervisorConfig,
+    shouldBlockContextWrite: blockCtxWrite,
+    getMilestoneId: () => s.currentMilestoneId,
+    isDepthVerified: depthCheck,
+    getIsUnitDone: () => !s.active || !s.currentUnit,
+    onToolStart: (id: string) => _markToolStart(id, s.active),
+    onToolEnd: (id: string) => _markToolEnd(id),
+    getBasePath: () => s.basePath,
+    getUnitInfo: () => ({ unitType: unit.type, unitId: unit.id }),
+  };
+}
+
+/**
  * Return the base path to use for the auto.lock file.
  * Always uses the original project root (not the worktree) so that
  * a second terminal can discover and stop a running auto-mode session.
