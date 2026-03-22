@@ -1,4 +1,5 @@
 import type { AgentSessionEvent } from "../../core/agent-session.js";
+import type { StatusActivityHandle, StatusActivityManager } from "./status-activity-manager.js";
 
 export interface InteractiveModeStateHost {
 	defaultEditor: any;
@@ -17,8 +18,11 @@ export interface InteractiveModeStateHost {
 	onInputCallback?: (text: string) => void;
 	isInitialized: boolean;
 	loadingAnimation?: any;
-	pendingWorkingMessage?: string;
-	defaultWorkingMessage: string;
+	statusActivity: StatusActivityManager;
+	agentStatusActivity?: StatusActivityHandle;
+	startStatusActivity(options?: { message?: string }): StatusActivityHandle;
+	runStatusActivity<T>(operation: () => Promise<T>, options?: { message?: string }): Promise<T>;
+	stopStatusActivity(handle?: StatusActivityHandle): void;
 	streamingComponent?: any;
 	streamingMessage?: any;
 	retryEscapeHandler?: () => void;
@@ -34,4 +38,3 @@ export interface InteractiveModeStateHost {
 }
 
 export type InteractiveModeEvent = AgentSessionEvent;
-

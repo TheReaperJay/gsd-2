@@ -1,7 +1,6 @@
 import type { ExtensionUIContext } from "../../../core/extensions/index.js";
 
 import { Theme, getAvailableThemesWithPaths, getThemeByName, setTheme, setThemeInstance, theme } from "../theme/theme.js";
-import { appKey } from "../components/keybinding-hints.js";
 
 export function createExtensionUIContext(host: any): ExtensionUIContext {
 	return {
@@ -11,17 +10,9 @@ export function createExtensionUIContext(host: any): ExtensionUIContext {
 		notify: (message, type) => host.showExtensionNotify(message, type),
 		onTerminalInput: (handler) => host.addExtensionTerminalInputListener(handler),
 		setStatus: (key, text) => host.setExtensionStatus(key, text),
-		setWorkingMessage: (message) => {
-			if (host.loadingAnimation) {
-				if (message) {
-					host.loadingAnimation.setMessage(message);
-				} else {
-					host.loadingAnimation.setMessage(`${host.defaultWorkingMessage} (${appKey(host.keybindings, "interrupt")} to interrupt)`);
-				}
-			} else {
-				host.pendingWorkingMessage = message;
-			}
-		},
+		startActivity: (message) => host.startStatusActivity({ message }),
+		runActivity: (operation, message) => host.runStatusActivity(operation, { message }),
+		setWorkingMessage: (message) => host.statusActivity.setWorkingMessage(message),
 		setWidget: (key, content, options) => host.setExtensionWidget(key, content, options),
 		setFooter: (factory) => host.setExtensionFooter(factory),
 		setHeader: (factory) => host.setExtensionHeader(factory),
@@ -56,4 +47,3 @@ export function createExtensionUIContext(host: any): ExtensionUIContext {
 		setToolsExpanded: (expanded) => host.setToolsExpanded(expanded),
 	};
 }
-

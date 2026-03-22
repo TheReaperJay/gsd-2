@@ -35,24 +35,8 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				host.retryLoader.stop();
 				host.retryLoader = undefined;
 			}
-			if (host.loadingAnimation) {
-				host.loadingAnimation.stop();
-			}
-			host.statusContainer.clear();
-			host.loadingAnimation = new Loader(
-				host.ui,
-				(spinner) => theme.fg("accent", spinner),
-				(text) => theme.fg("muted", text),
-				host.defaultWorkingMessage,
-			);
-			host.statusContainer.addChild(host.loadingAnimation);
-			if (host.pendingWorkingMessage !== undefined) {
-				if (host.pendingWorkingMessage) {
-					host.loadingAnimation.setMessage(host.pendingWorkingMessage);
-				}
-				host.pendingWorkingMessage = undefined;
-			}
-			host.ui.requestRender();
+			host.agentStatusActivity?.stop();
+			host.agentStatusActivity = host.startStatusActivity();
 			break;
 
 		case "message_start":
@@ -195,11 +179,8 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 		}
 
 		case "agent_end":
-			if (host.loadingAnimation) {
-				host.loadingAnimation.stop();
-				host.loadingAnimation = undefined;
-				host.statusContainer.clear();
-			}
+			host.agentStatusActivity?.stop();
+			host.agentStatusActivity = undefined;
 			if (host.streamingComponent) {
 				host.chatContainer.removeChild(host.streamingComponent);
 				host.streamingComponent = undefined;
@@ -213,6 +194,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 		case "auto_compaction_start":
 			host.autoCompactionEscapeHandler = host.defaultEditor.onEscape;
 			host.defaultEditor.onEscape = () => host.session.abortCompaction();
+			host.stopStatusActivity();
 			host.statusContainer.clear();
 			host.autoCompactionLoader = new Loader(
 				host.ui,
@@ -257,6 +239,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 		case "auto_retry_start":
 			host.retryEscapeHandler = host.defaultEditor.onEscape;
 			host.defaultEditor.onEscape = () => host.session.abortRetry();
+			host.stopStatusActivity();
 			host.statusContainer.clear();
 			host.retryLoader = new Loader(
 				host.ui,

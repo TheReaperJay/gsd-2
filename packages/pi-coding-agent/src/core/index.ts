@@ -38,6 +38,7 @@ export {
 	type ExtensionHandler,
 	ExtensionRunner,
 	type ExtensionShortcut,
+	type ExtensionUIActivityHandle,
 	type ExtensionUIContext,
 	type LoadExtensionsResult,
 	type MessageRenderer,

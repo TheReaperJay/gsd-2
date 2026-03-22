@@ -102,6 +102,16 @@ export interface ExtensionWidgetOptions {
 /** Raw terminal input listener for extensions. */
 export type TerminalInputHandler = (data: string) => { consume?: boolean; data?: string } | undefined;
 
+/** Handle for a running status activity (spinner/message lane). */
+export interface ExtensionUIActivityHandle {
+	/** Update the displayed activity message. Pass undefined to restore the default message. */
+	update(message?: string): void;
+	/** Stop this activity. */
+	stop(): void;
+	/** Whether this handle still represents an active activity. */
+	isActive(): boolean;
+}
+
 /**
  * UI context for extensions to request interactive UI.
  * Each mode (interactive, RPC, print) provides its own implementation.
@@ -125,7 +135,13 @@ export interface ExtensionUIContext {
 	/** Set status text in the footer/status bar. Pass undefined to clear. */
 	setStatus(key: string, text: string | undefined): void;
 
-	/** Set the working/loading message shown during streaming. Call with no argument to restore default. */
+	/** Start a status activity spinner and return a handle to update/stop it. */
+	startActivity(message?: string): ExtensionUIActivityHandle;
+
+	/** Run an async operation inside a status activity spinner. */
+	runActivity<T>(operation: () => Promise<T>, message?: string): Promise<T>;
+
+	/** Set the working/loading message shown during active work. Call with no argument to restore default. */
 	setWorkingMessage(message?: string): void;
 
 	/** Set a widget to display above or below the editor. Accepts string array or component factory. */
