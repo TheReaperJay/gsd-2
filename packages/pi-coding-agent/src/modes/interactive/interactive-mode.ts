@@ -43,7 +43,7 @@ import {
 	getUpdateInstruction,
 	VERSION,
 } from "../../config.js";
-import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.js";
+import { type AgentSession, type AgentSessionEvent, type PromptOptions, parseSkillBlock } from "../../core/agent-session.js";
 import type { CompactionResult } from "../../core/compaction/index.js";
 import type {
 	ExtensionContext,
@@ -114,6 +114,7 @@ import {
 	type ThemeColor,
 	theme,
 } from "./theme/theme.js";
+import { StatusActivityManager, type StatusActivityHandle } from "./status-activity-manager.js";
 
 /** Interface for components that can be expanded/collapsed */
 interface Expandable {
@@ -172,8 +173,8 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private loadingAnimation: Loader | undefined = undefined;
-	private pendingWorkingMessage: string | undefined = undefined;
-	private readonly defaultWorkingMessage = "Working...";
+	private statusActivity: StatusActivityManager;
+	private agentStatusActivity: StatusActivityHandle | undefined = undefined;
 
 	private lastSigintTime = 0;
 	private lastEscapeTime = 0;
@@ -275,6 +276,32 @@ export class InteractiveMode {
 		this.widgetContainerAbove = new Container();
 		this.widgetContainerBelow = new Container();
 		this.keybindings = KeybindingsManager.create();
+		this.statusActivity = new StatusActivityManager(
+			{
+				start: (message) => {
+					this.loadingAnimation = new Loader(
+						this.ui,
+						(spinner) => theme.fg("accent", spinner),
+						(text) => theme.fg("muted", text),
+						message,
+					);
+					this.statusContainer.clear();
+					this.statusContainer.addChild(this.loadingAnimation);
+					this.ui.requestRender();
+				},
+				update: (message) => {
+					this.loadingAnimation?.setMessage(message);
+					this.ui.requestRender();
+				},
+				stop: () => {
+					this.loadingAnimation?.stop();
+					this.loadingAnimation = undefined;
+					this.statusContainer.clear();
+					this.ui.requestRender();
+				},
+			},
+			() => this.getDefaultWorkingMessage(),
+		);
 		const editorPaddingX = this.settingsManager.getEditorPaddingX();
 		const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
 		this.defaultEditor = new CustomEditor(this.ui, getEditorTheme(), this.keybindings, {
@@ -572,7 +599,7 @@ export class InteractiveMode {
 		// Process initial messages
 		if (initialMessage) {
 			try {
-				await this.session.prompt(initialMessage, { images: initialImages });
+				await this.promptWithStatusActivity(initialMessage, { images: initialImages });
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
@@ -582,7 +609,7 @@ export class InteractiveMode {
 		if (initialMessages) {
 			for (const message of initialMessages) {
 				try {
-					await this.session.prompt(message);
+					await this.promptWithStatusActivity(message);
 				} catch (error: unknown) {
 					const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 					this.showError(errorMessage);
@@ -594,7 +621,7 @@ export class InteractiveMode {
 		while (true) {
 			const userInput = await this.getUserInput();
 			try {
-				await this.session.prompt(userInput);
+				await this.promptWithStatusActivity(userInput);
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
@@ -1102,11 +1129,7 @@ export class InteractiveMode {
 				commandContextActions: {
 					waitForIdle: () => this.session.agent.waitForIdle(),
 					newSession: async (options) => {
-						if (this.loadingAnimation) {
-							this.loadingAnimation.stop();
-							this.loadingAnimation = undefined;
-						}
-						this.statusContainer.clear();
+						this.stopStatusActivity();
 
 						// Delegate to AgentSession (handles setup + agent state sync)
 						const success = await this.session.newSession(options);
@@ -1368,11 +1391,7 @@ export class InteractiveMode {
 		this.setCustomEditorComponent(undefined);
 		this.defaultEditor.onExtensionShortcut = undefined;
 		this.updateTerminalTitle();
-		if (this.loadingAnimation) {
-			this.loadingAnimation.setMessage(
-				`${this.defaultWorkingMessage} (${appKey(this.keybindings, "interrupt")} to interrupt)`,
-			);
-		}
+		this.statusActivity.setWorkingMessage(undefined);
 	}
 
 	// Maximum total widget lines to prevent viewport overflow
@@ -2354,7 +2373,7 @@ export class InteractiveMode {
 			if (this.isExtensionCommand(text)) {
 				this.editor.addToHistory?.(text);
 				this.editor.setText("");
-				await this.session.prompt(text);
+				await this.promptWithStatusActivity(text);
 			} else {
 				this.queueCompactionMessage(text, "followUp");
 			}
@@ -2366,7 +2385,7 @@ export class InteractiveMode {
 		if (this.session.isStreaming) {
 			this.editor.addToHistory?.(text);
 			this.editor.setText("");
-			await this.session.prompt(text, { streamingBehavior: "followUp" });
+			await this.promptWithStatusActivity(text, { streamingBehavior: "followUp" });
 			this.updatePendingMessagesDisplay();
 			this.ui.requestRender();
 		}
@@ -2602,6 +2621,37 @@ export class InteractiveMode {
 		}
 	}
 
+	private getDefaultWorkingMessage(): string {
+		return `Working... (${appKey(this.keybindings, "interrupt")} to interrupt)`;
+	}
+
+	private startStatusActivity(options?: { message?: string }): StatusActivityHandle {
+		return this.statusActivity.start(options);
+	}
+
+	private async runStatusActivity<T>(operation: () => Promise<T>, options?: { message?: string }): Promise<T> {
+		return this.statusActivity.run(operation, options);
+	}
+
+	private stopStatusActivity(handle?: StatusActivityHandle): void {
+		if (handle) {
+			handle.stop();
+			return;
+		}
+		this.statusActivity.clear();
+		this.agentStatusActivity = undefined;
+	}
+
+	private async promptWithStatusActivity(text: string, options?: PromptOptions): Promise<void> {
+		const shouldTrackCommandActivity = this.isExtensionCommand(text) && !this.session.isStreaming;
+		if (shouldTrackCommandActivity) {
+			await this.runStatusActivity(() => this.session.prompt(text, options));
+			return;
+		}
+
+		await this.session.prompt(text, options);
+	}
+
 	private restoreQueuedMessagesToEditor(options?: { abort?: boolean; currentText?: string }): number {
 		const { steering, followUp } = this.clearAllQueues();
 		const allQueued = [...steering, ...followUp];
@@ -2667,7 +2717,7 @@ export class InteractiveMode {
 				// When retry is pending, queue messages for the retry turn
 				for (const message of queuedMessages) {
 					if (this.isExtensionCommand(message.text)) {
-						await this.session.prompt(message.text);
+						await this.promptWithStatusActivity(message.text);
 					} else if (message.mode === "followUp") {
 						await this.session.followUp(message.text);
 					} else {
@@ -2683,7 +2733,7 @@ export class InteractiveMode {
 			if (firstPromptIndex === -1) {
 				// All extension commands - execute them all
 				for (const message of queuedMessages) {
-					await this.session.prompt(message.text);
+					await this.promptWithStatusActivity(message.text);
 				}
 				return;
 			}
@@ -2694,18 +2744,18 @@ export class InteractiveMode {
 			const rest = queuedMessages.slice(firstPromptIndex + 1);
 
 			for (const message of preCommands) {
-				await this.session.prompt(message.text);
+				await this.promptWithStatusActivity(message.text);
 			}
 
 			// Send first prompt (starts streaming)
-			const promptPromise = this.session.prompt(firstPrompt.text).catch((error) => {
+			const promptPromise = this.promptWithStatusActivity(firstPrompt.text).catch((error) => {
 				restoreQueue(error);
 			});
 
 			// Queue remaining messages
 			for (const message of rest) {
 				if (this.isExtensionCommand(message.text)) {
-					await this.session.prompt(message.text);
+					await this.promptWithStatusActivity(message.text);
 				} else if (message.mode === "followUp") {
 					await this.session.followUp(message.text);
 				} else {
@@ -3253,12 +3303,7 @@ export class InteractiveMode {
 	}
 
 	private async handleResumeSession(sessionPath: string): Promise<void> {
-		// Stop loading animation
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop();
-			this.loadingAnimation = undefined;
-		}
-		this.statusContainer.clear();
+		this.stopStatusActivity();
 
 		// Clear UI state
 		this.pendingMessagesContainer.clear();
@@ -3576,12 +3621,7 @@ export class InteractiveMode {
 	}
 
 	private async handleClearCommand(): Promise<void> {
-		// Stop loading animation
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop();
-			this.loadingAnimation = undefined;
-		}
-		this.statusContainer.clear();
+		this.stopStatusActivity();
 
 		// New session via session (emits extension session events)
 		await this.session.newSession();
@@ -3735,12 +3775,7 @@ export class InteractiveMode {
 	}
 
 	private async executeCompaction(customInstructions?: string, isAuto = false): Promise<CompactionResult | undefined> {
-		// Stop loading animation
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop();
-			this.loadingAnimation = undefined;
-		}
-		this.statusContainer.clear();
+		this.stopStatusActivity();
 
 		// Set up escape handler during compaction
 		const originalOnEscape = this.defaultEditor.onEscape;
@@ -3796,10 +3831,7 @@ export class InteractiveMode {
 	}
 
 	stop(): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop();
-			this.loadingAnimation = undefined;
-		}
+		this.stopStatusActivity();
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();

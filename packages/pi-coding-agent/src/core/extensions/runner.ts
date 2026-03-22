@@ -161,6 +161,12 @@ const noOpUIContext: ExtensionUIContext = {
 	notify: () => {},
 	onTerminalInput: () => () => {},
 	setStatus: () => {},
+	startActivity: () => ({
+		update: () => {},
+		stop: () => {},
+		isActive: () => false,
+	}),
+	runActivity: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
 	setWorkingMessage: () => {},
 	setWidget: () => {},
 	setFooter: () => {},

@@ -252,6 +252,20 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 			});
 		},
 
+		startActivity(): { update: () => void; stop: () => void; isActive: () => boolean } {
+			// Working activity spinner is not supported in RPC mode
+			return {
+				update: () => {},
+				stop: () => {},
+				isActive: () => false,
+			};
+		},
+
+		runActivity<T>(operation: () => Promise<T>): Promise<T> {
+			// Execute operation without spinner in RPC mode
+			return operation();
+		},
+
 		setWorkingMessage(message?: string): void {
 			workingMessageState = message;
 			void withEmbeddedUiContext((ui) => {

@@ -12,6 +12,7 @@ export function setupEditorSubmitHandler(host: InteractiveModeStateHost & {
 	updatePendingMessagesDisplay: () => void;
 	flushPendingBashComponents: () => void;
 	options?: { submitPromptsDirectly?: boolean };
+	promptWithStatusActivity: (text: string, options?: { streamingBehavior?: "steer" | "followUp" }) => Promise<void>;
 }): void {
 	host.defaultEditor.onSubmit = async (text: string) => {
 		text = text.trim();
@@ -46,7 +47,7 @@ export function setupEditorSubmitHandler(host: InteractiveModeStateHost & {
 			if (host.isExtensionCommand(text)) {
 				host.editor.addToHistory?.(text);
 				host.editor.setText("");
-				await host.session.prompt(text);
+				await host.promptWithStatusActivity(text);
 			} else {
 				host.queueCompactionMessage(text, "steer");
 			}
@@ -56,7 +57,7 @@ export function setupEditorSubmitHandler(host: InteractiveModeStateHost & {
 		if (host.session.isStreaming) {
 			host.editor.addToHistory?.(text);
 			host.editor.setText("");
-			await host.session.prompt(text, { streamingBehavior: "steer" });
+			await host.promptWithStatusActivity(text, { streamingBehavior: "steer" });
 			host.updatePendingMessagesDisplay();
 			host.ui.requestRender();
 			return;
