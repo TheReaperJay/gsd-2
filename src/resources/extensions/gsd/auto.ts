@@ -167,7 +167,9 @@ import {
   buildLoopRemediationSteps,
   reconcileMergeState,
 } from "./auto-recovery.js";
-import { resolveDispatch } from "./auto-dispatch.js";
+import { resolveDispatch, DISPATCH_RULES } from "./auto-dispatch.js";
+import { initRegistry, convertDispatchRules } from "./rule-registry.js";
+import { emitJournalEvent as _emitJournalEvent, type JournalEntry } from "./journal.js";
 import {
   type AutoDashboardData,
   updateProgressWidget as _updateProgressWidget,
@@ -876,6 +878,11 @@ function buildResolver(): WorktreeResolver {
  * This bundles all private functions that autoLoop needs without exporting them.
  */
 function buildLoopDeps(): LoopDeps {
+  // Initialize the unified rule registry with converted dispatch rules.
+  // Must happen before LoopDeps is assembled so facade functions
+  // (resolveDispatch, runPreDispatchHooks, etc.) delegate to the registry.
+  initRegistry(convertDispatchRules(DISPATCH_RULES));
+
   return {
     lockBase,
     buildSnapshotOpts,
@@ -986,6 +993,9 @@ function buildLoopDeps(): LoopDeps {
         return "";
       }
     },
+
+    // Journal
+    emitJournalEvent: (entry: JournalEntry) => _emitJournalEvent(s.basePath, entry),
   } as unknown as LoopDeps;
 }
 
