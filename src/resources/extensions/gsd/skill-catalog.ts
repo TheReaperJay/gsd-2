@@ -229,6 +229,25 @@ export const SKILL_CATALOG: SkillPack[] = [
     matchLanguages: ["go"],
     matchFiles: ["go.mod"],
   },
+  // ── Database / ORM ─────────────────────────────────────────────────────────
+  {
+    label: "Prisma",
+    description: "Prisma ORM setup, schema design, client API, and migrations",
+    repo: "prisma/skills",
+    skills: [
+      "prisma-database-setup",
+      "prisma-client-api",
+      "prisma-cli",
+    ],
+    matchFiles: ["prisma/schema.prisma"],
+  },
+  {
+    label: "Supabase & Postgres",
+    description: "Supabase project setup, auth, Postgres best practices, and Firestore",
+    repo: "supabase/agent-skills",
+    skills: ["supabase-postgres-best-practices"],
+    matchFiles: ["supabase/config.toml"],
+  },
   // ── Cloud Platforms ────────────────────────────────────────────────────────
   {
     label: "Firebase",

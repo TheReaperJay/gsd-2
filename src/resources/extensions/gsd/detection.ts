@@ -99,6 +99,11 @@ export const PROJECT_FILES = [
   "serverless.yml",
   "serverless.yaml",
   "azure-pipelines.yml",
+  // Database / ORM config files
+  "prisma/schema.prisma",
+  "supabase/config.toml",
+  "drizzle.config.ts",
+  "drizzle.config.js",
   // React Native markers
   "metro.config.js",
   "metro.config.ts",
