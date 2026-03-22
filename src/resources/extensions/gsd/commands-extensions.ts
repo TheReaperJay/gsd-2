@@ -6,7 +6,7 @@
  * via jiti at runtime from ~/.gsd/agent/, not compiled by tsc).
  */
 
-import type { ExtensionCommandContext } from "@gsd/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { execSync } from "node:child_process";
@@ -176,7 +176,7 @@ function findManifest(dir: string): ExtensionManifest {
 
 // ─── Command Handler ────────────────────────────────────────────────────────
 
-export async function handleExtensions(args: string, ctx: ExtensionCommandContext): Promise<void> {
+export async function handleExtensions(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
   const parts = args.split(/\s+/).filter(Boolean);
   const subCmd = parts[0] ?? "list";
 
@@ -201,7 +201,7 @@ export async function handleExtensions(args: string, ctx: ExtensionCommandContex
   }
 
   if (subCmd === "install") {
-    await handleInstall(parts.slice(1).join(" "), ctx);
+    await handleInstall(parts.slice(1).join(" "), ctx, pi);
     return;
   }
 
@@ -405,7 +405,7 @@ function handleInfo(id: string | undefined, ctx: ExtensionCommandContext): void 
   ctx.ui.notify(lines.join("\n"), "info");
 }
 
-async function handleInstall(source: string, ctx: ExtensionCommandContext): Promise<void> {
+async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
   if (!source) {
     ctx.ui.notify("Usage: /gsd extensions install <npm-package | git-url | local-path>", "warning");
     return;

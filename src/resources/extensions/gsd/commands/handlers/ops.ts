@@ -179,7 +179,7 @@ Examples:
   }
   if (trimmed === "extensions" || trimmed.startsWith("extensions ")) {
     const { handleExtensions } = await import("../../commands-extensions.js");
-    await handleExtensions(trimmed.replace(/^extensions\s*/, "").trim(), ctx);
+    await handleExtensions(trimmed.replace(/^extensions\s*/, "").trim(), ctx, pi);
     return true;
   }
   return false;
