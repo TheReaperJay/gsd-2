@@ -9,7 +9,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 
@@ -415,10 +415,34 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
 
   let tempDir: string | null = null;
   try {
+    // -- Phase 1: Fetch and validate manifest --
     const sourceType = detectSourceType(source);
     tempDir = fetchToTemp(source, sourceType);
     const manifest = findManifest(tempDir);
 
+    // -- Phase 2: Runtime dependency check (D-11, D-12, D-13, D-14) --
+    if (manifest.dependencies?.runtime?.length) {
+      const missing: string[] = [];
+      for (const dep of manifest.dependencies.runtime) {
+        const result = spawnSync(dep, ["--version"], { encoding: "utf-8", timeout: 5000 });
+        if (result.error || result.status !== 0) {
+          missing.push(dep);
+        } else {
+          ctx.ui.notify(`  Dependency found: ${dep}`, "info");
+        }
+      }
+      if (missing.length > 0) {
+        ctx.ui.notify(
+          `Missing runtime dependencies: ${missing.join(", ")}.\n` +
+          `Install them and retry: /gsd extensions install ${source}`,
+          "error",
+        );
+        return;
+      }
+      ctx.ui.notify("All runtime dependencies found.", "info");
+    }
+
+    // -- Phase 3: Copy extension to target directory --
     const extDir = getAgentExtensionsDir();
     const targetDir = join(extDir, manifest.id);
 
@@ -451,10 +475,125 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
     registry.entries[manifest.id] = { id: manifest.id, enabled: true, source: "user" };
     saveRegistry(registry);
 
-    ctx.ui.notify(
-      `Extension "${manifest.name}" v${manifest.version} installed. Restart GSD to activate.`,
-      "info",
-    );
+    // -- Phase 4: Hot-load extension (D-01, ONBOARD-01) --
+    // Snapshot provider registry before hot-load to detect newly registered providers
+    const { getRegisteredProviderInfos } = await import("@gsd/provider-api");
+    const beforeIds = new Set(getRegisteredProviderInfos().map(p => p.id));
+
+    // Look for entry file: index.ts first, then index.js
+    const entryFile = existsSync(join(targetDir, "index.ts"))
+      ? join(targetDir, "index.ts")
+      : existsSync(join(targetDir, "index.js"))
+        ? join(targetDir, "index.js")
+        : null;
+
+    if (entryFile) {
+      try {
+        const { createJiti } = await import("@mariozechner/jiti");
+        const { fileURLToPath } = await import("node:url");
+        const jiti = createJiti(fileURLToPath(import.meta.url), { interopDefault: true, debug: false });
+        const mod = await jiti.import(entryFile, {}) as { default?: (pi: ExtensionAPI) => Promise<void> };
+        if (typeof mod.default === "function") {
+          await mod.default(pi);
+        }
+      } catch (err) {
+        ctx.ui.notify(
+          `Extension installed but hot-load failed: ${err instanceof Error ? err.message : String(err)}. Restart GSD to activate.`,
+          "warning",
+        );
+      }
+    }
+
+    // -- Phase 5: Onboarding dispatch (D-04, D-05, ONBOARD-03) --
+    // D-04: Any extension type can declare onboarding. Check for newly registered
+    // providers after hot-load — if any have onboard(), call it regardless of
+    // manifest type. This is the generic onboarding path.
+    //
+    // D-05: Only provider extensions get the default CLI auth flow as fallback
+    // when they don't declare custom onboard().
+    //
+    // NOTE on dynamic imports below: ExtensionContext and ExtensionAPI do NOT
+    // expose authStorage or settingsManager (verified in types.ts). The only way
+    // to obtain them is via dynamic import from @gsd/pi-coding-agent. This is a
+    // deliberate deviation from the "self-contained" pattern documented at the top
+    // of this file. The alternative would be extending ExtensionContext to expose
+    // these, which is a larger architectural change deferred to a future phase.
+    // The dynamic imports are safe here because commands-extensions.ts is loaded
+    // via jiti at runtime within the GSD process where @gsd/pi-coding-agent is
+    // already resolved.
+
+    const afterProviders = getRegisteredProviderInfos();
+    const newProviders = afterProviders.filter(p => !beforeIds.has(p.id));
+
+    // Path 1: Extension registered new provider(s) — check for onboard()
+    if (newProviders.length > 0) {
+      for (const pp of newProviders) {
+        if (pp.onboard) {
+          // D-04: Generic onboard() dispatch — works for ANY extension type
+          const p = await import("@clack/prompts");
+          const pc = await import("picocolors");
+          const { AuthStorage, getAgentDir } = await import("@gsd/pi-coding-agent");
+          const agentDirPath = getAgentDir();
+          const authFilePath = join(agentDirPath, "auth.json");
+          const authStorage = AuthStorage.create(authFilePath);
+
+          await pp.onboard(p, pc, authStorage);
+
+          ctx.ui.notify(
+            `${manifest.name} v${manifest.version} installed and activated.\n` +
+            `  Provider: ${pp.displayName}\n` +
+            `  Models: ${pp.models.map(m => m.displayName || m.id).join(", ")}`,
+            "info",
+          );
+        } else if (manifest.provides?.provider) {
+          // D-05: Provider extension without custom onboard() — run default auth flow
+          const { runProviderOnboarding } = await import("../../../onboarding.js");
+          const p = await import("@clack/prompts");
+          const pc = await import("picocolors");
+          const { AuthStorage, SettingsManager, getAgentDir } = await import("@gsd/pi-coding-agent");
+          const agentDirPath = getAgentDir();
+          const authFilePath = join(agentDirPath, "auth.json");
+          const authStorage = AuthStorage.create(authFilePath);
+          const settingsManager = SettingsManager.create(agentDirPath);
+
+          const onboardResult = await runProviderOnboarding(pp, p, pc, authStorage, settingsManager);
+
+          // Show summary (D-08, ONBOARD-03)
+          const modelNames = pp.models.map(m => m.displayName || m.id).join(", ");
+          if (onboardResult.ok) {
+            ctx.ui.notify(
+              `${manifest.name} v${manifest.version} installed and activated.\n` +
+              `  Provider: ${pp.displayName}\n` +
+              `  Models: ${modelNames}\n` +
+              `  Auth: authenticated` +
+              (pp.defaultModel ? `\n  Default: ${pp.defaultModel}` : ""),
+              "info",
+            );
+          } else {
+            ctx.ui.notify(
+              `${manifest.name} v${manifest.version} installed.\n` +
+              `  Provider: ${pp.displayName}\n` +
+              `  Models: ${modelNames}\n` +
+              `  Auth: not authenticated — models hidden until auth is resolved`,
+              "warning",
+            );
+          }
+        } else {
+          // Non-provider extension that registered a provider without onboard() — simple success
+          ctx.ui.notify(
+            `${manifest.name} v${manifest.version} installed and activated.\n` +
+            `  Provider: ${pp.displayName}`,
+            "info",
+          );
+        }
+      }
+    } else {
+      // No new providers registered — non-provider extension (D-03)
+      ctx.ui.notify(
+        `Extension "${manifest.name}" v${manifest.version} installed and activated.`,
+        "info",
+      );
+    }
   } catch (err) {
     ctx.ui.notify(`Failed to install: ${err instanceof Error ? err.message : String(err)}`, "error");
   } finally {
