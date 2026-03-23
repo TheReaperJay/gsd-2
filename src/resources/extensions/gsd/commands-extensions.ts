@@ -551,10 +551,7 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
           const p = await import("@clack/prompts");
           const pcMod = await import("picocolors");
           const pc = pcMod.default;
-          const { AuthStorage, getAgentDir } = await import("@gsd/pi-coding-agent");
-          const agentDirPath = getAgentDir();
-          const authFilePath = join(agentDirPath, "auth.json");
-          const authStorage = AuthStorage.create(authFilePath);
+          const authStorage = ctx.modelRegistry.authStorage;
 
           const onboardOk = await pp.onboard(p, pc, authStorage);
           const modelActivated = onboardOk
@@ -578,10 +575,9 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
           const p = await import("@clack/prompts");
           const pcMod = await import("picocolors");
           const pc = pcMod.default;
-          const { AuthStorage, SettingsManager, getAgentDir } = await import("@gsd/pi-coding-agent");
+          const { SettingsManager, getAgentDir } = await import("@gsd/pi-coding-agent");
+          const authStorage = ctx.modelRegistry.authStorage;
           const agentDirPath = getAgentDir();
-          const authFilePath = join(agentDirPath, "auth.json");
-          const authStorage = AuthStorage.create(authFilePath);
           const settingsManager = SettingsManager.create(agentDirPath);
 
           const onboardResult = await runPluginOnboarding(pp, p, pc, authStorage, settingsManager);
