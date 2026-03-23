@@ -57,7 +57,7 @@
   - Verify: `node --import ./src/resources/extensions/gsd/tests/resolve-ts.mjs --experimental-strip-types --test src/resources/extensions/gsd/tests/gsd-recover.test.ts`
   - Done when: migrateHierarchyToDb populates vision, successCriteria, boundaryMapMarkdown on milestones; goal on slices; files and verify on tasks. Recovery test proves it.
 
-- [ ] **T03: Migrate warm/cold callers batch 1 — doctor, visualizer, workspace, dashboard, guided-flow** `est:40m`
+- [x] **T03: Migrate warm/cold callers batch 1 — doctor, visualizer, workspace, dashboard, guided-flow** `est:40m`
   - Why: Seven files with straightforward parseRoadmap/parsePlan usage need the S04 isDbAvailable + lazy createRequire pattern applied.
   - Files: `src/resources/extensions/gsd/doctor.ts`, `src/resources/extensions/gsd/doctor-checks.ts`, `src/resources/extensions/gsd/visualizer-data.ts`, `src/resources/extensions/gsd/workspace-index.ts`, `src/resources/extensions/gsd/dashboard-overlay.ts`, `src/resources/extensions/gsd/auto-dashboard.ts`, `src/resources/extensions/gsd/guided-flow.ts`
   - Do: For each file: (1) Remove module-level `parseRoadmap`/`parsePlan` from the import statement. (2) At each call site, add `isDbAvailable()` gate calling `getMilestoneSlices()`/`getSliceTasks()` for the DB path. (3) Add lazy `createRequire`-based fallback loading the parser for non-DB path. (4) For `parsePlan().filesLikelyTouched` aggregation in callers: collect `.files` arrays from `getSliceTasks()` results. (5) Keep other non-parser imports (loadFile, parseSummary, etc.) as module-level. Note: these files are async or synchronous — check each. For async callers, dynamic `import()` is also acceptable. Follow the exact pattern from `dispatch-guard.ts` (S04).

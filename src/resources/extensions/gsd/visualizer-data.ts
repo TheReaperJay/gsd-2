@@ -3,7 +3,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { deriveState } from './state.js';
-import { parseRoadmap, parsePlan, parseSummary, loadFile } from './files.js';
+import { parseSummary, loadFile } from './files.js';
+import { isDbAvailable, getMilestoneSlices, getSliceTasks } from './gsd-db.js';
 import { findMilestoneIds } from './milestone-ids.js';
 import { resolveMilestoneFile, resolveSliceFile, resolveGsdRootFile, gsdRoot } from './paths.js';
 import {
@@ -35,6 +36,18 @@ import type {
   TierAggregate,
   UnitMetrics,
 } from './metrics.js';
+
+// Lazy-loaded parsers — only resolved when DB is unavailable (fallback path)
+import { createRequire } from 'node:module';
+let _lazyParsers: { parseRoadmap: (c: string) => { slices: Array<{ id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string }> }; parsePlan: (c: string) => { tasks: Array<{ id: string; done: boolean; title: string; estimate?: string }> } } | null = null;
+function getLazyParsers() {
+  if (!_lazyParsers) {
+    const req = createRequire(import.meta.url);
+    try { const mod = req('./files.ts'); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
+    catch { const mod = req('./files.js'); _lazyParsers = { parseRoadmap: mod.parseRoadmap, parsePlan: mod.parsePlan }; }
+  }
+  return _lazyParsers!;
+}
 
 // ─── Visualizer Types ─────────────────────────────────────────────────────────
 
@@ -796,10 +809,17 @@ export async function loadVisualizerData(basePath: string): Promise<VisualizerDa
     const roadmapFile = resolveMilestoneFile(basePath, mid, 'ROADMAP');
     const roadmapContent = roadmapFile ? readFileCached(roadmapFile) : null;
 
-    if (roadmapContent) {
-      const roadmap = parseRoadmap(roadmapContent);
+    if (roadmapContent || isDbAvailable()) {
+      // Normalize slices: prefer DB, fall back to parser
+      type NormSlice = { id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string };
+      let normSlices: NormSlice[];
+      if (isDbAvailable()) {
+        normSlices = getMilestoneSlices(mid).map(s => ({ id: s.id, done: s.status === 'complete', title: s.title, risk: s.risk || 'medium', depends: s.depends, demo: s.demo }));
+      } else {
+        normSlices = getLazyParsers().parseRoadmap(roadmapContent!).slices;
+      }
 
-      for (const s of roadmap.slices) {
+      for (const s of normSlices) {
         const isActiveSlice =
           state.activeMilestone?.id === mid &&
           state.activeSlice?.id === s.id;
@@ -807,19 +827,31 @@ export async function loadVisualizerData(basePath: string): Promise<VisualizerDa
         const tasks: VisualizerTask[] = [];
 
         if (isActiveSlice) {
-          const planFile = resolveSliceFile(basePath, mid, s.id, 'PLAN');
-          const planContent = planFile ? readFileCached(planFile) : null;
-
-          if (planContent) {
-            const plan = parsePlan(planContent);
-            for (const t of plan.tasks) {
+          // Normalize tasks: prefer DB, fall back to parser
+          if (isDbAvailable()) {
+            for (const t of getSliceTasks(mid, s.id)) {
               tasks.push({
                 id: t.id,
                 title: t.title,
-                done: t.done,
+                done: t.status === 'complete' || t.status === 'done',
                 active: state.activeTask?.id === t.id,
                 estimate: t.estimate || undefined,
               });
+            }
+          } else {
+            const planFile = resolveSliceFile(basePath, mid, s.id, 'PLAN');
+            const planContent = planFile ? readFileCached(planFile) : null;
+            if (planContent) {
+              const plan = getLazyParsers().parsePlan(planContent);
+              for (const t of plan.tasks) {
+                tasks.push({
+                  id: t.id,
+                  title: t.title,
+                  done: t.done,
+                  active: state.activeTask?.id === t.id,
+                  estimate: t.estimate || undefined,
+                });
+              }
             }
           }
         }

@@ -121,3 +121,9 @@ After all changes, run verification grep and existing test suites.
 - `src/resources/extensions/gsd/dashboard-overlay.ts` — same migration
 - `src/resources/extensions/gsd/auto-dashboard.ts` — same migration
 - `src/resources/extensions/gsd/guided-flow.ts` — same migration
+
+## Observability Impact
+
+- **Signal change:** All 7 migrated files now use `isDbAvailable()` as primary data path. When DB is available, these callers read slice/task data from SQLite instead of parsing markdown. The lazy `createRequire` fallback logs to stderr when it activates, making parser-path usage detectable in logs.
+- **Inspection:** `grep -rn 'isDbAvailable' src/resources/extensions/gsd/{doctor,doctor-checks,visualizer-data,workspace-index,dashboard-overlay,auto-dashboard,guided-flow}.ts` shows all gate points. At runtime, DB availability determines which path executes.
+- **Failure visibility:** If DB is unavailable, fallback to parser is silent but functional. If parser also fails, existing error handling in each function propagates the failure (most are wrapped in try/catch with non-fatal fallthrough).

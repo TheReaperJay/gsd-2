@@ -8,7 +8,8 @@
 
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@gsd/pi-coding-agent";
 import { showNextAction } from "../shared/tui.js";
-import { loadFile, parseRoadmap } from "./files.js";
+import { loadFile } from "./files.js";
+import { isDbAvailable, getMilestoneSlices } from "./gsd-db.js";
 import { loadPrompt, inlineTemplate } from "./prompt-loader.js";
 import { buildSkillActivationBlock } from "./auto-prompts.js";
 import { deriveState } from "./state.js";
@@ -37,6 +38,18 @@ import { debugLog } from "./debug-logger.js";
 import { findMilestoneIds, nextMilestoneId, reserveMilestoneId, getReservedMilestoneIds } from "./milestone-ids.js";
 import { parkMilestone, discardMilestone } from "./milestone-actions.js";
 import { resolveModelWithFallbacksForUnit } from "./preferences-models.js";
+
+// Lazy-loaded parseRoadmap — only resolved when DB is unavailable (fallback path)
+import { createRequire } from "node:module";
+let _lazyParseRoadmap: ((c: string) => { slices: Array<{ id: string; done: boolean; title: string; risk: string; depends: string[]; demo: string }> }) | null = null;
+function lazyParseRoadmap(content: string) {
+  if (!_lazyParseRoadmap) {
+    const req = createRequire(import.meta.url);
+    try { _lazyParseRoadmap = req("./files.ts").parseRoadmap; }
+    catch { _lazyParseRoadmap = req("./files.js").parseRoadmap; }
+  }
+  return _lazyParseRoadmap!(content);
+}
 
 // ─── Re-exports (preserve public API for existing importers) ────────────────
 export {
@@ -446,9 +459,15 @@ async function buildDiscussSlicePrompt(
   }
 
   // Completed slice summaries — what was already built that this slice builds on
-  if (roadmapContent) {
-    const roadmap = parseRoadmap(roadmapContent);
-    for (const s of roadmap.slices) {
+  {
+    type NormSlice = { id: string; done: boolean };
+    let normSlices: NormSlice[] = [];
+    if (isDbAvailable()) {
+      normSlices = getMilestoneSlices(mid).map(s => ({ id: s.id, done: s.status === "complete" }));
+    } else if (roadmapContent) {
+      normSlices = lazyParseRoadmap(roadmapContent).slices;
+    }
+    for (const s of normSlices) {
       if (!s.done || s.id === sid) continue;
       const summaryPath = resolveSliceFile(base, mid, s.id, "SUMMARY");
       const summaryRel = relSliceFile(base, mid, s.id, "SUMMARY");
@@ -575,16 +594,23 @@ export async function showDiscuss(
     return;
   }
 
-  // Guard: no roadmap yet
+  // Guard: no roadmap yet (unless DB has slices)
   const roadmapFile = resolveMilestoneFile(basePath, mid, "ROADMAP");
   const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-  if (!roadmapContent) {
+  if (!roadmapContent && !isDbAvailable()) {
     ctx.ui.notify("No roadmap yet for this milestone. Run /gsd to plan first.", "warning");
     return;
   }
 
-  const roadmap = parseRoadmap(roadmapContent);
-  const pendingSlices = roadmap.slices.filter(s => !s.done);
+  // Normalize slices: prefer DB, fall back to parser
+  type NormSlice = { id: string; done: boolean; title: string };
+  let normSlices: NormSlice[];
+  if (isDbAvailable()) {
+    normSlices = getMilestoneSlices(mid).map(s => ({ id: s.id, done: s.status === "complete", title: s.title }));
+  } else {
+    normSlices = lazyParseRoadmap(roadmapContent!).slices;
+  }
+  const pendingSlices = normSlices.filter(s => !s.done);
 
   if (pendingSlices.length === 0) {
     ctx.ui.notify("All slices are complete — nothing to discuss.", "info");
