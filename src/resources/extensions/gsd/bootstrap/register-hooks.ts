@@ -25,6 +25,34 @@ async function syncServiceTierStatus(ctx: ExtensionContext): Promise<void> {
   ctx.ui.setStatus("gsd-fast", formatServiceTierFooterStatus(getEffectiveServiceTier(), ctx.model?.id));
 }
 
+async function syncProviderDeps(): Promise<void> {
+  try {
+    const { setProviderDeps } = await import("@gsd/provider-api");
+    const autoDeps = buildProviderDeps();
+    if (autoDeps) {
+      setProviderDeps(autoDeps);
+      return;
+    }
+
+    // Fallback deps for non-auto/manual sessions so plugin providers can run.
+    setProviderDeps({
+      getSupervisorConfig: () => ({}),
+      shouldBlockContextWrite: (toolName, inputPath, milestoneId, depthVerified) =>
+        shouldBlockContextWrite(toolName, inputPath, milestoneId, depthVerified, isQueuePhaseActive()),
+      getMilestoneId: () => getDiscussionMilestoneId(),
+      isDepthVerified: () => isDepthVerified(),
+      // No unit lifecycle in manual mode; do not force-stop streams.
+      getIsUnitDone: () => true,
+      onToolStart: () => undefined,
+      onToolEnd: () => undefined,
+      getBasePath: () => process.cwd(),
+      getUnitInfo: () => ({ unitType: "manual", unitId: "manual" }),
+    });
+  } catch {
+    // provider-api not available — non-fatal
+  }
+}
+
 export function registerHooks(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     resetWriteGateState();
@@ -45,6 +73,7 @@ export function registerHooks(pi: ExtensionAPI): void {
       } catch { /* non-fatal */ }
     }
     loadToolApiKeys();
+    await syncProviderDeps();
     try {
       const [{ getRemoteConfigStatus }, { getLatestPromptSummary }] = await Promise.all([
         import("../../remote-questions/config.js"),
@@ -62,15 +91,10 @@ export function registerHooks(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (event, ctx: ExtensionContext) => {
-    // Wire supervision deps so provider extensions (e.g. claude-code)
-    // receive timeout/write-gate/tool-tracking context.
-    const deps = buildProviderDeps();
-    if (deps) {
-      try {
-        const { setProviderDeps } = await import("@gsd/provider-api");
-        setProviderDeps(deps);
-      } catch { /* provider-api not available — non-fatal */ }
-    }
+    // Always wire deps before each turn:
+    // - auto mode: supervision-aware deps
+    // - manual mode: fallback deps
+    await syncProviderDeps();
 
     return buildBeforeAgentStartResult(event, ctx);
   });
