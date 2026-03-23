@@ -147,6 +147,20 @@ describe("extensions install — onboarding dispatch (ONBOARD-03, D-04)", () => 
     );
   });
 
+  it("attempts in-session model activation after successful onboarding", () => {
+    assert.ok(
+      handleInstallBody.includes("pi.setModel("),
+      "handleInstall should attempt pi.setModel so users can send a prompt immediately after install",
+    );
+  });
+
+  it("shows /model guidance when default model cannot be activated immediately", () => {
+    assert.ok(
+      handleInstallBody.includes("run /model and select"),
+      "handleInstall should explicitly guide users to /model when in-session activation is unavailable",
+    );
+  });
+
   it("shows success summary for authenticated provider", () => {
     assert.ok(
       handleInstallBody.includes("installed and activated"),

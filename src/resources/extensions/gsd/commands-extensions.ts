@@ -530,6 +530,19 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
     const afterProviders = getRegisteredProviderInfos();
     const newProviders = afterProviders.filter(p => !beforeIds.has(p.id));
 
+    const tryActivateDefaultModel = async (providerId: string, defaultModel: string | undefined): Promise<boolean> => {
+      if (!defaultModel) return false;
+      const available = ctx.modelRegistry.getAvailable();
+      const match = available.find(m => m.provider === providerId && m.id === defaultModel)
+        ?? available.find(m => m.id === defaultModel);
+      if (!match) return false;
+      try {
+        return await pi.setModel(match, { persist: false });
+      } catch {
+        return false;
+      }
+    };
+
     // Path 1: Extension registered new provider(s) — check for onboard()
     if (newProviders.length > 0) {
       for (const pp of newProviders) {
@@ -543,12 +556,20 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
           const authFilePath = join(agentDirPath, "auth.json");
           const authStorage = AuthStorage.create(authFilePath);
 
-          await pp.onboard(p, pc, authStorage);
+          const onboardOk = await pp.onboard(p, pc, authStorage);
+          const modelActivated = onboardOk
+            ? await tryActivateDefaultModel(pp.id, pp.defaultModel)
+            : false;
 
           ctx.ui.notify(
             `${manifest.name} v${manifest.version} installed and activated.\n` +
             `  Provider: ${pp.displayName}\n` +
-            `  Models: ${pp.models.map(m => m.displayName || m.id).join(", ")}`,
+            `  Models: ${pp.models.map(m => m.displayName || m.id).join(", ")}` +
+            (pp.defaultModel
+              ? modelActivated
+                ? `\n  Active model: ${pp.defaultModel}`
+                : `\n  Next: run /model and select ${pp.defaultModel}`
+              : ""),
             "info",
           );
         } else if (manifest.provides?.provider) {
@@ -568,12 +589,17 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
           // Show summary (D-08, ONBOARD-03)
           const modelNames = pp.models.map(m => m.displayName || m.id).join(", ");
           if (onboardResult.ok) {
+            const modelActivated = await tryActivateDefaultModel(pp.id, pp.defaultModel);
             ctx.ui.notify(
               `${manifest.name} v${manifest.version} installed and activated.\n` +
               `  Provider: ${pp.displayName}\n` +
               `  Models: ${modelNames}\n` +
               `  Auth: authenticated` +
-              (pp.defaultModel ? `\n  Default: ${pp.defaultModel}` : ""),
+              (pp.defaultModel
+                ? modelActivated
+                  ? `\n  Active model: ${pp.defaultModel}`
+                  : `\n  Default: ${pp.defaultModel}\n  Next: run /model and select ${pp.defaultModel}`
+                : ""),
               "info",
             );
           } else {
@@ -581,7 +607,8 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
               `${manifest.name} v${manifest.version} installed.\n` +
               `  Provider: ${pp.displayName}\n` +
               `  Models: ${modelNames}\n` +
-              `  Auth: not authenticated — models hidden until auth is resolved`,
+              `  Auth: not authenticated — models hidden until auth is resolved` +
+              (pp.defaultModel ? `\n  After auth: run /model and select ${pp.defaultModel}` : ""),
               "warning",
             );
           }
