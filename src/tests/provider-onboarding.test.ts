@@ -1,5 +1,5 @@
 /**
- * Tests for runProviderOnboarding() — the extracted provider onboarding function.
+ * Tests for runPluginOnboarding() — the default plugin onboarding function.
  *
  * Covers:
  * - CLI auth provider succeeds: returns { ok: true }, stores credential
@@ -118,14 +118,14 @@ function makeCustomOnboardProvider(onboardResult: boolean): GsdProviderInfo {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test('runProviderOnboarding: CLI auth ok=true returns { ok: true } and stores credential', async () => {
-  const { runProviderOnboarding } = await import('../onboarding.ts')
+test('runPluginOnboarding: CLI auth ok=true returns { ok: true } and stores credential', async () => {
+  const { runPluginOnboarding } = await import('@gsd/provider-api')
   const pp = makeCliProvider({ ok: true, email: 'test@example.com' })
   const p = makeClack()
   const pc = makePico()
   const authStorage = makeAuthStorage()
 
-  const result = await runProviderOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage)
+  const result = await runPluginOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage)
 
   assert.deepEqual(result, { ok: true })
   assert.equal(authStorage.calls.length, 1)
@@ -133,48 +133,48 @@ test('runProviderOnboarding: CLI auth ok=true returns { ok: true } and stores cr
   assert.deepEqual(authStorage.calls[0]!.credential, { type: 'api_key', key: 'test-cli-credential' })
 })
 
-test('runProviderOnboarding: CLI auth ok=false returns { ok: false } and does NOT store credential', async () => {
-  const { runProviderOnboarding } = await import('../onboarding.ts')
+test('runPluginOnboarding: CLI auth ok=false returns { ok: false } and does NOT store credential', async () => {
+  const { runPluginOnboarding } = await import('@gsd/provider-api')
   const pp = makeCliProvider({ ok: false, reason: 'Not logged in', instruction: 'Run test-cli login' })
   const p = makeClack()
   const pc = makePico()
   const authStorage = makeAuthStorage()
 
-  const result = await runProviderOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage)
+  const result = await runPluginOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage)
 
   assert.deepEqual(result, { ok: false })
   assert.equal(authStorage.calls.length, 0)
 })
 
-test('runProviderOnboarding: custom onboard() is called and result wrapped in { ok }', async () => {
-  const { runProviderOnboarding } = await import('../onboarding.ts')
+test('runPluginOnboarding: custom onboard() is called and result wrapped in { ok }', async () => {
+  const { runPluginOnboarding } = await import('@gsd/provider-api')
   const pp = makeCustomOnboardProvider(true)
   const p = makeClack()
   const pc = makePico()
   const authStorage = makeAuthStorage()
 
-  const result = await runProviderOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage)
+  const result = await runPluginOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage)
 
   assert.deepEqual(result, { ok: true })
 })
 
-test('runProviderOnboarding: CLI auth ok=true with defaultModel + settingsManager calls setDefaultModelAndProvider', async () => {
-  const { runProviderOnboarding } = await import('../onboarding.ts')
+test('runPluginOnboarding: CLI auth ok=true with defaultModel + settingsManager calls setDefaultModelAndProvider', async () => {
+  const { runPluginOnboarding } = await import('@gsd/provider-api')
   const pp = makeCliProvider({ ok: true, email: 'test@example.com' })
   const p = makeClack()
   const pc = makePico()
   const authStorage = makeAuthStorage()
   const settingsManager = makeSettingsManager()
 
-  await runProviderOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage, settingsManager)
+  await runPluginOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage, settingsManager)
 
   assert.equal(settingsManager.calls.length, 1)
   assert.equal(settingsManager.calls[0]!.providerId, 'test-provider')
   assert.equal(settingsManager.calls[0]!.modelId, 'test-provider:model-1')
 })
 
-test('runProviderOnboarding: CLI auth ok=true with no settingsManager does NOT throw', async () => {
-  const { runProviderOnboarding } = await import('../onboarding.ts')
+test('runPluginOnboarding: CLI auth ok=true with no settingsManager does NOT throw', async () => {
+  const { runPluginOnboarding } = await import('@gsd/provider-api')
   const pp = makeCliProvider({ ok: true, email: 'test@example.com' })
   const p = makeClack()
   const pc = makePico()
@@ -182,7 +182,7 @@ test('runProviderOnboarding: CLI auth ok=true with no settingsManager does NOT t
 
   // No settingsManager passed — must not throw
   await assert.doesNotReject(async () => {
-    const result = await runProviderOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage)
+    const result = await runPluginOnboarding(pp, p as unknown as typeof import('@clack/prompts'), pc, authStorage)
     assert.deepEqual(result, { ok: true })
   })
 })

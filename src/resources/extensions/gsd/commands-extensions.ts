@@ -411,27 +411,28 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
     return;
   }
 
-  ctx.ui.notify(`Installing extension from: ${source}...`, "info");
-
   let tempDir: string | null = null;
   try {
     // -- Phase 1: Fetch and validate manifest --
+    ctx.ui.setWorkingMessage(`Fetching extension from ${source}...`);
     const sourceType = detectSourceType(source);
     tempDir = fetchToTemp(source, sourceType);
     const manifest = findManifest(tempDir);
 
     // -- Phase 2: Runtime dependency check (D-11, D-12, D-13, D-14) --
     if (manifest.dependencies?.runtime?.length) {
+      ctx.ui.setWorkingMessage("Checking runtime dependencies...");
       const missing: string[] = [];
       for (const dep of manifest.dependencies.runtime) {
         const result = spawnSync(dep, ["--version"], { encoding: "utf-8", timeout: 5000 });
         if (result.error || result.status !== 0) {
           missing.push(dep);
         } else {
-          ctx.ui.notify(`  Dependency found: ${dep}`, "info");
+          ctx.ui.notify(`Dependency found: ${dep}`, "info");
         }
       }
       if (missing.length > 0) {
+        ctx.ui.setWorkingMessage();
         ctx.ui.notify(
           `Missing runtime dependencies: ${missing.join(", ")}.\n` +
           `Install them and retry: /gsd extensions install ${source}`,
@@ -439,10 +440,10 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
         );
         return;
       }
-      ctx.ui.notify("All runtime dependencies found.", "info");
     }
 
     // -- Phase 3: Copy extension to target directory --
+    ctx.ui.setWorkingMessage(`Installing ${manifest.name}...`);
     const extDir = getAgentExtensionsDir();
     const targetDir = join(extDir, manifest.id);
 
@@ -476,9 +477,10 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
     saveRegistry(registry);
 
     // -- Phase 4: Hot-load extension (D-01, ONBOARD-01) --
+    ctx.ui.setWorkingMessage(`Activating ${manifest.name}...`);
     // Snapshot provider registry before hot-load to detect newly registered providers
     const { getRegisteredProviderInfos } = await import("@gsd/provider-api");
-    const beforeIds = new Set(getRegisteredProviderInfos().map(p => p.id));
+    const beforeIds = new Set(getRegisteredProviderInfos().map(p2 => p2.id));
 
     // Look for entry file: index.ts first, then index.js
     const entryFile = existsSync(join(targetDir, "index.ts"))
@@ -497,12 +499,15 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
           await mod.default(pi);
         }
       } catch (err) {
+        ctx.ui.setWorkingMessage();
         ctx.ui.notify(
           `Extension installed but hot-load failed: ${err instanceof Error ? err.message : String(err)}. Restart GSD to activate.`,
           "warning",
         );
       }
     }
+
+    ctx.ui.setWorkingMessage();
 
     // -- Phase 5: Onboarding dispatch (D-04, D-05, ONBOARD-03) --
     // D-04: Any extension type can declare onboarding. Check for newly registered
@@ -531,7 +536,8 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
         if (pp.onboard) {
           // D-04: Generic onboard() dispatch — works for ANY extension type
           const p = await import("@clack/prompts");
-          const pc = await import("picocolors");
+          const pcMod = await import("picocolors");
+          const pc = pcMod.default;
           const { AuthStorage, getAgentDir } = await import("@gsd/pi-coding-agent");
           const agentDirPath = getAgentDir();
           const authFilePath = join(agentDirPath, "auth.json");
@@ -547,16 +553,17 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
           );
         } else if (manifest.provides?.provider) {
           // D-05: Provider extension without custom onboard() — run default auth flow
-          const { runProviderOnboarding } = await import("../../../onboarding.js");
+          const { runPluginOnboarding } = await import("@gsd/provider-api");
           const p = await import("@clack/prompts");
-          const pc = await import("picocolors");
+          const pcMod = await import("picocolors");
+          const pc = pcMod.default;
           const { AuthStorage, SettingsManager, getAgentDir } = await import("@gsd/pi-coding-agent");
           const agentDirPath = getAgentDir();
           const authFilePath = join(agentDirPath, "auth.json");
           const authStorage = AuthStorage.create(authFilePath);
           const settingsManager = SettingsManager.create(agentDirPath);
 
-          const onboardResult = await runProviderOnboarding(pp, p, pc, authStorage, settingsManager);
+          const onboardResult = await runPluginOnboarding(pp, p, pc, authStorage, settingsManager);
 
           // Show summary (D-08, ONBOARD-03)
           const modelNames = pp.models.map(m => m.displayName || m.id).join(", ");
@@ -595,8 +602,10 @@ async function handleInstall(source: string, ctx: ExtensionCommandContext, pi: E
       );
     }
   } catch (err) {
+    ctx.ui.setWorkingMessage();
     ctx.ui.notify(`Failed to install: ${err instanceof Error ? err.message : String(err)}`, "error");
   } finally {
+    ctx.ui.setWorkingMessage();
     if (tempDir) {
       try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* cleanup */ }
     }

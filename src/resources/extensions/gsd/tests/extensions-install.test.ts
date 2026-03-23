@@ -6,7 +6,7 @@
  * - ONBOARD-02: Runtime dependency check before hot-load (spawnSync --version)
  * - ONBOARD-03: Provider onboarding dispatch after hot-load
  * - D-04: pp.onboard() is type-agnostic — checked before manifest.provides.provider
- * - D-05: runProviderOnboarding fallback for provider extensions without custom onboard()
+ * - D-05: runPluginOnboarding fallback for provider extensions without custom onboard()
  *
  * Uses static source analysis to verify structural contracts. handleInstall()
  * depends on filesystem, npm, jiti, Pi, and external CLIs — unit-testing the
@@ -140,10 +140,10 @@ describe("extensions install — onboarding dispatch (ONBOARD-03, D-04)", () => 
     );
   });
 
-  it("calls runProviderOnboarding for provider extensions without custom onboard (D-05)", () => {
+  it("calls runPluginOnboarding for provider extensions without custom onboard (D-05)", () => {
     assert.ok(
-      handleInstallBody.includes("runProviderOnboarding"),
-      "handleInstall must call runProviderOnboarding for provider extensions without custom onboard",
+      handleInstallBody.includes("runPluginOnboarding"),
+      "handleInstall must call runPluginOnboarding for provider extensions without custom onboard",
     );
   });
 

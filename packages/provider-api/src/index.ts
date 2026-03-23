@@ -32,3 +32,5 @@ export { defineGsdTool } from "./define-tool.js";
 export { wireProvidersToPI } from "./adapter.js";
 
 export { discoverLocalProviders } from "./local-discovery.js";
+
+export { runPluginOnboarding } from "./plugin-onboarding.js";
