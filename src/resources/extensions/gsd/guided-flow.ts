@@ -35,7 +35,7 @@ import { showProjectInit, offerMigration } from "./init-wizard.js";
 import { validateDirectory } from "./validate-directory.js";
 import { showConfirm } from "../shared/tui.js";
 import { debugLog } from "./debug-logger.js";
-import { findMilestoneIds, nextMilestoneId, reserveMilestoneId, getReservedMilestoneIds } from "./milestone-ids.js";
+import { findMilestoneIds, nextMilestoneId, reserveMilestoneId, getReservedMilestoneIds, clearReservedMilestoneIds } from "./milestone-ids.js";
 import { parkMilestone, discardMilestone } from "./milestone-actions.js";
 import { resolveModelWithFallbacksForUnit } from "./preferences-models.js";
 
@@ -373,6 +373,9 @@ export async function showHeadlessMilestoneCreation(
   basePath: string,
   seedContext: string,
 ): Promise<void> {
+  // Clear stale reservations from previous cancelled sessions (#2488)
+  clearReservedMilestoneIds();
+
   // Ensure .gsd/ is bootstrapped
   bootstrapGsdProject(basePath);
 
@@ -841,6 +844,11 @@ export async function showSmartEntry(
   options?: { step?: boolean },
 ): Promise<void> {
   const stepMode = options?.step;
+
+  // ── Clear stale milestone ID reservations from previous cancelled sessions ──
+  // Reservations only need to survive within a single /gsd interaction.
+  // Without this, each cancelled session permanently bumps the next ID. (#2488)
+  clearReservedMilestoneIds();
 
   // ── Directory safety check — refuse to operate in system/home dirs ───
   const dirCheck = validateDirectory(basePath);
