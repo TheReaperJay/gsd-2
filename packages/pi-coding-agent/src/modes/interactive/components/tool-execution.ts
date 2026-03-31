@@ -980,7 +980,15 @@ export class ToolExecutionComponent extends Container {
 		if (lines[0] && /^exit_code:\s*-?\d+$/.test(lines[0].trim())) {
 			lines.shift();
 		}
-		return lines.join("\n").trim();
+		const meaningfulLines = lines.filter((line) => {
+			const trimmed = line.trim();
+			if (!trimmed) return false;
+			// Generic wrapper/annotation lines are parenthetical metadata, not command output.
+			// Example: "(executed by Claude Code)"
+			if (/^\([^)]{1,200}\)$/.test(trimmed)) return false;
+			return true;
+		});
+		return meaningfulLines.join("\n").trim();
 	}
 
 	private prependActionPrefix(text: string): string {
