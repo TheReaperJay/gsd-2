@@ -85,6 +85,7 @@ import { ScopedModelsSelectorComponent } from "./components/scoped-models-select
 import { SessionSelectorComponent } from "./components/session-selector.js";
 import { SettingsSelectorComponent } from "./components/settings-selector.js";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.js";
+import { ToolMenuComponent } from "./components/tool-menu.js";
 import { ToolExecutionComponent } from "./components/tool-execution.js";
 import { TreeSelectorComponent } from "./components/tree-selector.js";
 import { UserMessageComponent } from "./components/user-message.js";
@@ -426,7 +427,7 @@ export class InteractiveMode {
 				hint("cycleThinkingLevel", "to cycle thinking level"),
 				rawKeyHint(`${appKey(kb, "cycleModelForward")}/${appKey(kb, "cycleModelBackward")}`, "to cycle models"),
 				hint("selectModel", "to select model"),
-				hint("expandTools", "to expand/collapse all tools"),
+				hint("expandTools", "to open/close tool menu"),
 				hint("toggleThinking", "to expand thinking"),
 				hint("externalEditor", "for external editor"),
 				rawKeyHint("/", "for commands"),
@@ -2122,7 +2123,6 @@ export class InteractiveMode {
 					message,
 					this.hideThinkingBlock,
 					this.getMarkdownThemeWithSettings(),
-					this.settingsManager.getTimestampFormat(),
 				);
 				this.chatContainer.addChild(assistantComponent);
 				break;
@@ -2468,24 +2468,17 @@ export class InteractiveMode {
 			(child): child is ToolExecutionComponent => child instanceof ToolExecutionComponent,
 		);
 		if (toolComponents.length === 0) {
+			this.showStatus("No tool calls in current view");
 			return;
 		}
-		const nextExpanded = !this.toolOutputExpanded;
-		for (const component of toolComponents) {
-			component.setExpanded(nextExpanded);
-		}
-		this.toolOutputExpanded = nextExpanded;
-		this.ui.requestRender();
-	}
 
-	private findLastExpandable(): Expandable | undefined {
-		for (let i = this.chatContainer.children.length - 1; i >= 0; i--) {
-			const child = this.chatContainer.children[i];
-			if (isExpandable(child)) {
-				return child;
-			}
-		}
-		return undefined;
+		this.showSelector((done) => {
+			const menu = new ToolMenuComponent(toolComponents, () => {
+				done();
+				this.ui.requestRender();
+			});
+			return { component: menu, focus: menu };
+		});
 	}
 
 	private setActiveExpandable(component: unknown): void {

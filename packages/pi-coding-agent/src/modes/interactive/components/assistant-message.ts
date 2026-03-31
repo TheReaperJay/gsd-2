@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "@gsd/pi-ai";
 import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@gsd/pi-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
-import { formatActionTimestamp, formatTimestamp, type TimestampFormat } from "./timestamp.js";
+import { formatActionTimestamp } from "./timestamp.js";
 
 type VisibleAssistantBlock = {
 	kind: "text" | "thinking";
@@ -17,20 +17,17 @@ export class AssistantMessageComponent extends Container {
 	private hideThinkingBlock: boolean;
 	private markdownTheme: MarkdownTheme;
 	private lastMessage?: AssistantMessage;
-	private timestampFormat: TimestampFormat;
 	private contentTimestamps = new Map<number, number>();
 
 	constructor(
 		message?: AssistantMessage,
 		hideThinkingBlock = false,
 		markdownTheme: MarkdownTheme = getMarkdownTheme(),
-		timestampFormat: TimestampFormat = "date-time-iso",
 	) {
 		super();
 
 		this.hideThinkingBlock = hideThinkingBlock;
 		this.markdownTheme = markdownTheme;
-		this.timestampFormat = timestampFormat;
 
 		// Container for text/thinking content
 		this.contentContainer = new Container();
@@ -153,10 +150,5 @@ export class AssistantMessageComponent extends Container {
 			}
 		}
 
-		// Show timestamp when the message is complete (has a stop reason)
-		if (message.stopReason && message.timestamp) {
-			const timeStr = formatTimestamp(message.timestamp, this.timestampFormat);
-			this.contentContainer.addChild(new Text(theme.fg("dim", timeStr), 1, 0));
-		}
 	}
 }

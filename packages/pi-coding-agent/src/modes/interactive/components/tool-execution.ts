@@ -68,6 +68,14 @@ export interface ToolExecutionOptions {
 	showImages?: boolean; // default: true (only used if terminal supports images)
 }
 
+export interface ToolMenuSnapshot {
+	label: string;
+	status: string;
+	expanded: boolean;
+	previewLines: string[];
+	totalPreviewLines: number;
+}
+
 type WriteHighlightCache = {
 	rawPath: string | null;
 	lang: string;
@@ -359,6 +367,26 @@ export class ToolExecutionComponent extends Container {
 
 	isExpanded(): boolean {
 		return this.expanded;
+	}
+
+	getMenuSnapshot(maxPreviewLines = 12): ToolMenuSnapshot {
+		let label = this.toolDisplayName;
+		if (this.toolName === "bash") {
+			const command = str(this.args?.command);
+			const commandPreview =
+				command === null ? "[invalid arg]" : command ? truncateCommandPreview(command, 84) : "...";
+			label = `Bash: ${commandPreview}`;
+		}
+
+		const previewText = this.toolName === "bash" ? this.getBashOutput(str(this.args?.command)) : this.getTextOutput().trim();
+		const lines = previewText ? previewText.split("\n") : [];
+		return {
+			label,
+			status: this.getStatusPlain(),
+			expanded: this.expanded,
+			previewLines: lines.slice(0, maxPreviewLines),
+			totalPreviewLines: lines.length,
+		};
 	}
 
 	setShowImages(show: boolean): void {
@@ -951,6 +979,16 @@ export class ToolExecutionComponent extends Container {
 			return exitCode === 0 ? theme.fg("success", `(done, ${exitCode})`) : theme.fg("error", `(done, ${exitCode})`);
 		}
 		return this.result?.isError ? theme.fg("error", "(error)") : theme.fg("success", "(done)");
+	}
+
+	private getStatusPlain(): string {
+		if (this.isPartial) return "running";
+		if (this.result?.isError) return "error";
+		if (this.toolName === "bash") {
+			const exitCode = this.getBashExitCode();
+			if (typeof exitCode === "number") return `done, ${exitCode}`;
+		}
+		return "done";
 	}
 
 	private getBashExitCode(): number | undefined {

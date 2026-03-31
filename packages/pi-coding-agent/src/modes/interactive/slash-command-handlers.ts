@@ -540,7 +540,7 @@ function handleHotkeysCommand(ctx: SlashCommandContext): void {
 | \`${cycleThinkingLevel}\` | Cycle thinking level |
 | \`${cycleModelForward}\` | Cycle models |
 | \`${selectModel}\` | Open model selector |
-| \`${expandTools}\` | Toggle expansion for all tool items |
+| \`${expandTools}\` | Open/close tool menu |
 | \`${toggleThinking}\` | Toggle thinking block visibility |
 | \`${externalEditor}\` | Edit message in external editor |
 | \`${followUp}\` | Queue follow-up message |

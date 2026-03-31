@@ -252,7 +252,6 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					undefined,
 					host.hideThinkingBlock,
 					host.getMarkdownThemeWithSettings(),
-					host.settingsManager.getTimestampFormat(),
 				);
 				host.streamingMessage = event.message;
 				host.currentTurnMetrics = {
