@@ -79,6 +79,79 @@ function pinSummaryToBottom(host: InteractiveModeStateHost & { streamingSummaryC
 	void host;
 }
 
+type ExternalToolResultShape = {
+	content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+	isError: boolean;
+	details?: unknown;
+};
+
+function normalizeExternalToolResult(raw: unknown): ExternalToolResultShape {
+	if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+		const record = raw as Record<string, unknown>;
+		const rawContent = Array.isArray(record.content) ? record.content : [];
+		const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = rawContent
+			.map((part) => {
+				if (part && typeof part === "object" && !Array.isArray(part)) {
+					const p = part as Record<string, unknown>;
+					const type = typeof p.type === "string" ? p.type : "text";
+					if (type === "image") {
+						return {
+							type: "image",
+							data: typeof p.data === "string" ? p.data : undefined,
+							mimeType: typeof p.mimeType === "string" ? p.mimeType : undefined,
+						};
+					}
+					return { type: "text", text: typeof p.text === "string" ? p.text : JSON.stringify(p) };
+				}
+				if (typeof part === "string") {
+					return { type: "text", text: part };
+				}
+				return { type: "text", text: String(part ?? "") };
+			});
+
+		return {
+			content,
+			isError: record.isError === true,
+			details: record.details,
+		};
+	}
+
+	if (typeof raw === "string") {
+		return { content: [{ type: "text", text: raw }], isError: false };
+	}
+
+	return { content: [], isError: false };
+}
+
+function tryApplyExternalToolResult(
+	host: InteractiveModeStateHost & {
+		currentTurnMetrics?: TurnSummaryMetrics;
+		streamingSummaryComponent?: TurnSummaryComponent;
+	},
+	toolCallId: string,
+	raw: unknown,
+): boolean {
+	const component = host.pendingTools.get(toolCallId);
+	if (!component) return false;
+
+	const normalized = normalizeExternalToolResult(raw);
+	component.updateResult({
+		content: normalized.content,
+		isError: normalized.isError,
+		details: normalized.details,
+	});
+
+	const diffCounts = parseDiffLineCounts((normalized.details as Record<string, unknown> | undefined)?.diff);
+	updateSummaryMetrics(host, {
+		linesAdded: (host.currentTurnMetrics?.linesAdded ?? 0) + diffCounts.added,
+		linesRemoved: (host.currentTurnMetrics?.linesRemoved ?? 0) + diffCounts.removed,
+	});
+
+	host.pendingTools.delete(toolCallId);
+	pinSummaryToBottom(host);
+	return true;
+}
+
 export async function handleAgentEvent(host: InteractiveModeStateHost & {
 	init: () => Promise<void>;
 	getMarkdownThemeWithSettings: () => any;
@@ -218,6 +291,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 						} else {
 							host.pendingTools.get(content.id)?.updateArgs(content.arguments);
 						}
+						tryApplyExternalToolResult(host, content.id, (content as Record<string, unknown>).externalResult);
 					} else if (content.type === "serverToolUse") {
 						if (!host.pendingTools.has(content.id)) {
 							const component = new ToolExecutionComponent(
@@ -296,6 +370,21 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				} else {
 					for (const [, component] of host.pendingTools.entries()) {
 						component.setArgsComplete();
+					}
+
+					for (const content of host.streamingMessage.content) {
+						if (content.type === "toolCall") {
+							tryApplyExternalToolResult(host, content.id, (content as Record<string, unknown>).externalResult);
+						}
+					}
+
+					// If the turn is complete (not waiting for a subsequent toolResult phase),
+					// close any still-pending tools so they don't remain "running...".
+					if (host.streamingMessage.stopReason !== "toolUse") {
+						for (const [toolCallId, component] of host.pendingTools.entries()) {
+							component.updateResult({ content: [], isError: false });
+							host.pendingTools.delete(toolCallId);
+						}
 					}
 				}
 				pinSummaryToBottom(host);

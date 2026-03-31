@@ -2185,6 +2185,20 @@ export class InteractiveMode {
 								errorMessage = message.errorMessage || "Error";
 							}
 							component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
+						} else if ((content as unknown as Record<string, unknown>).externalResult) {
+							const externalResult = (content as unknown as Record<string, unknown>).externalResult;
+							if (externalResult && typeof externalResult === "object" && !Array.isArray(externalResult)) {
+								const resultRecord = externalResult as Record<string, unknown>;
+								component.updateResult({
+									content: Array.isArray(resultRecord.content)
+										? resultRecord.content as Array<{ type: string; text?: string; data?: string; mimeType?: string }>
+										: [],
+									details: resultRecord.details,
+									isError: resultRecord.isError === true,
+								});
+							} else {
+								component.updateResult({ content: [], isError: false });
+							}
 						} else {
 							this.pendingTools.set(content.id, component);
 						}
