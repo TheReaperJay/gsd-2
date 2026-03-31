@@ -7,7 +7,6 @@ import {
 	Spacer,
 	Text,
 	type TUI,
-	truncateToWidth,
 } from "@gsd/pi-tui";
 import stripAnsi from "strip-ansi";
 import type { ToolDefinition } from "../../../core/extensions/types.js";
@@ -21,10 +20,6 @@ import { shortenPath } from "../utils/shorten-path.js";
 import { renderDiff } from "./diff.js";
 import { keyHint } from "./keybinding-hints.js";
 import { formatActionTimestamp } from "./timestamp.js";
-import { truncateToVisualLines } from "./visual-truncate.js";
-
-// Preview line limit for bash when not expanded
-const BASH_PREVIEW_LINES = 5;
 // During partial write tool-call streaming, re-highlight the first N lines fully
 // to keep multiline tokenization mostly correct without re-highlighting the full file.
 const WRITE_PARTIAL_FULL_HIGHLIGHT_LINES = 50;
@@ -51,6 +46,25 @@ function str(value: unknown): string | null {
 	return null; // Invalid type
 }
 
+function canonicalizeToolName(name: string): string {
+	return name.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function formatToolDisplayName(name: string): string {
+	if (!name.trim()) return "Tool";
+	return name
+		.trim()
+		.split(/[\s_-]+/)
+		.filter(Boolean)
+		.map((part) => part[0].toUpperCase() + part.slice(1).toLowerCase())
+		.join(" ");
+}
+
+function truncateCommandPreview(command: string, maxChars = 90): string {
+	if (command.length <= maxChars) return command;
+	return `${command.slice(0, Math.max(0, maxChars - 3))}...`;
+}
+
 export interface ToolExecutionOptions {
 	showImages?: boolean; // default: true (only used if terminal supports images)
 }
@@ -72,6 +86,7 @@ export class ToolExecutionComponent extends Container {
 	private imageComponents: Image[] = [];
 	private imageSpacers: Spacer[] = [];
 	private toolName: string;
+	private readonly toolDisplayName: string;
 	private args: any;
 	private expanded = false;
 	private showImages: boolean;
@@ -105,22 +120,21 @@ export class ToolExecutionComponent extends Container {
 		cwd: string = process.cwd(),
 	) {
 		super();
-		this.toolName = toolName;
+		this.toolName = canonicalizeToolName(toolName);
+		this.toolDisplayName = formatToolDisplayName(toolName);
 		this.args = args;
 		this.showImages = options.showImages ?? true;
 		this.toolDefinition = toolDefinition;
 		this.ui = ui;
 		this.cwd = cwd;
 
-		this.addChild(new Spacer(1));
-
 		// Always create both - contentBox for custom tools/bash, contentText for other built-ins
-		this.contentBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
-		this.contentText = new Text("", 1, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentBox = new Box(0, 0, (text: string) => text);
+		this.contentText = new Text("", 0, 0, (text: string) => text);
 
 		// Use contentBox for bash (visual truncation) or custom tools with custom renderers
 		// Use contentText for built-in tools (including overrides without custom renderers)
-		if (toolName === "bash" || (toolDefinition && !this.shouldUseBuiltInRenderer())) {
+		if (this.toolName === "bash" || (toolDefinition && !this.shouldUseBuiltInRenderer())) {
 			this.addChild(this.contentBox);
 		} else {
 			this.addChild(this.contentText);
@@ -372,11 +386,7 @@ export class ToolExecutionComponent extends Container {
 
 	private updateDisplay(): void {
 		// Set background based on state
-		const bgFn = this.isPartial
-			? (text: string) => theme.bg("toolPendingBg", text)
-			: this.result?.isError
-				? (text: string) => theme.bg("toolErrorBg", text)
-				: (text: string) => theme.bg("toolSuccessBg", text);
+		const bgFn = (text: string) => text;
 
 		const useBuiltInRenderer = this.shouldUseBuiltInRenderer();
 		let customRendererHasContent = false;
@@ -409,12 +419,12 @@ export class ToolExecutionComponent extends Container {
 					}
 				} catch {
 					// Fall back to default on error
-					this.contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0));
+					this.contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.toolDisplayName)), 0, 0));
 					customRendererHasContent = true;
 				}
 			} else {
 				// No custom renderCall, show tool name
-				this.contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0));
+				this.contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.toolDisplayName)), 0, 0));
 				customRendererHasContent = true;
 			}
 
@@ -513,14 +523,24 @@ export class ToolExecutionComponent extends Container {
 		// Header
 		const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
 		const commandDisplay =
-			command === null ? theme.fg("error", "[invalid arg]") : command ? command : theme.fg("toolOutput", "...");
+			command === null
+				? theme.fg("error", "[invalid arg]")
+				: command
+					? theme.fg("toolOutput", truncateCommandPreview(command))
+					: theme.fg("toolOutput", "...");
+		const status = this.getBashStatusSuffix();
+		const chevron = theme.fg("muted", this.expanded ? "▾" : "▸");
 		const prefix = this.getActionPrefix();
 		this.contentBox.addChild(
-			new Text(prefix + theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix, 0, 0),
+			new Text(
+				prefix + theme.fg("toolTitle", theme.bold(`Bash: ${commandDisplay}`)) + timeoutSuffix + ` ${status} ${chevron}`,
+				0,
+				0,
+			),
 		);
 
-		if (this.result) {
-			const output = this.getTextOutput().trim();
+		if (this.result && this.expanded) {
+			const output = this.getBashOutput(command);
 
 			if (output) {
 				// Style each line for the output
@@ -529,39 +549,8 @@ export class ToolExecutionComponent extends Container {
 					.map((line) => theme.fg("toolOutput", line))
 					.join("\n");
 
-				if (this.expanded) {
-					// Show all lines when expanded
-					this.contentBox.addChild(new Text(`\n${styledOutput}`, 0, 0));
-				} else {
-					// Use visual line truncation when collapsed with width-aware caching
-					let cachedWidth: number | undefined;
-					let cachedLines: string[] | undefined;
-					let cachedSkipped: number | undefined;
-
-					this.contentBox.addChild({
-						render: (width: number) => {
-							if (cachedLines === undefined || cachedWidth !== width) {
-								const result = truncateToVisualLines(styledOutput, BASH_PREVIEW_LINES, width);
-								cachedLines = result.visualLines;
-								cachedSkipped = result.skippedCount;
-								cachedWidth = width;
-							}
-							if (cachedSkipped && cachedSkipped > 0) {
-								const hint =
-									theme.fg("muted", `... (${cachedSkipped} earlier lines,`) +
-									` ${keyHint("expandTools", "to expand")})`;
-								return ["", truncateToWidth(hint, width, "..."), ...cachedLines];
-							}
-							// Add blank line for spacing (matches expanded case)
-							return ["", ...cachedLines];
-						},
-						invalidate: () => {
-							cachedWidth = undefined;
-							cachedLines = undefined;
-							cachedSkipped = undefined;
-						},
-					});
-				}
+				// Show all lines when expanded
+				this.contentBox.addChild(new Text(`\n${styledOutput}`, 0, 0));
 			}
 
 			// Truncation warnings
@@ -582,6 +571,14 @@ export class ToolExecutionComponent extends Container {
 					}
 				}
 				this.contentBox.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
+			}
+		} else if (this.result && !this.expanded) {
+			// Keep collapsed bash tools compact; output available via expand.
+			const output = this.getBashOutput(command);
+			if (output) {
+				const lineCount = output.split("\n").length;
+				const hint = theme.fg("muted", ` (${lineCount} lines hidden, ${keyHint("expandTools", "to expand")})`);
+				this.contentBox.addChild(new Text(hint, 0, 0));
 			}
 		}
 	}
@@ -924,13 +921,23 @@ export class ToolExecutionComponent extends Container {
 			}
 		} else {
 			// Generic tool (shouldn't reach here for custom tools)
-			text = theme.fg("toolTitle", theme.bold(this.toolName));
+			text = theme.fg("toolTitle", theme.bold(this.toolDisplayName));
 
-			const content = JSON.stringify(this.args, null, 2);
-			text += `\n\n${content}`;
-			const output = this.getTextOutput();
-			if (output) {
-				text += `\n${output}`;
+			if (!this.expanded) {
+				const status = this.isPartial
+					? theme.fg("muted", "(running...)")
+					: this.result?.isError
+						? theme.fg("error", "(error)")
+						: theme.fg("success", "(done)");
+				text += ` ${status} ${theme.fg("muted", "▸")}`;
+			} else {
+				text += ` ${theme.fg("muted", "▾")}`;
+				const content = JSON.stringify(this.args, null, 2);
+				text += `\n\n${content}`;
+				const output = this.getTextOutput();
+				if (output) {
+					text += `\n${output}`;
+				}
 			}
 		}
 
@@ -940,6 +947,40 @@ export class ToolExecutionComponent extends Container {
 	private getActionPrefix(): string {
 		const ts = this.completedAt ?? this.startedAt;
 		return `${theme.fg("dim", `[${formatActionTimestamp(ts)}]`)} ${theme.fg("warning", theme.bold("[tool]"))} `;
+	}
+
+	private getBashStatusSuffix(): string {
+		if (this.isPartial) return theme.fg("muted", "(running...)");
+		const exitCode = this.getBashExitCode();
+		if (typeof exitCode === "number") {
+			return exitCode === 0 ? theme.fg("success", `(done, ${exitCode})`) : theme.fg("error", `(done, ${exitCode})`);
+		}
+		return this.result?.isError ? theme.fg("error", "(error)") : theme.fg("success", "(done)");
+	}
+
+	private getBashExitCode(): number | undefined {
+		const detailsExitCode = this.result?.details?.exitCode;
+		if (typeof detailsExitCode === "number" && Number.isFinite(detailsExitCode)) {
+			return detailsExitCode;
+		}
+		const text = this.getTextOutput();
+		const match = text.match(/(?:^|\n)exit_code:\s*(-?\d+)(?:\n|$)/);
+		if (!match) return undefined;
+		const parsed = Number.parseInt(match[1], 10);
+		return Number.isFinite(parsed) ? parsed : undefined;
+	}
+
+	private getBashOutput(command: string | null): string {
+		const raw = this.getTextOutput().trim();
+		if (!raw) return "";
+		const lines = raw.split("\n");
+		if (command && lines[0]?.trim() === `$ ${command}`) {
+			lines.shift();
+		}
+		if (lines[0] && /^exit_code:\s*-?\d+$/.test(lines[0].trim())) {
+			lines.shift();
+		}
+		return lines.join("\n").trim();
 	}
 
 	private prependActionPrefix(text: string): string {
