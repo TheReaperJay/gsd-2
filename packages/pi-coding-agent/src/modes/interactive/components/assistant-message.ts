@@ -96,17 +96,13 @@ export class AssistantMessageComponent extends Container {
 			this.contentContainer.addChild(new Spacer(1));
 		}
 
-		// Render content in order, suppressing repeated timestamp labels for the same second.
-		let lastRenderedTimestamp: string | undefined;
+		// Render content in order (timestamps intentionally hidden for cleaner timeline).
 		for (let i = 0; i < visibleBlocks.length; i++) {
 			const block = visibleBlocks[i];
-			const tsLabel = formatActionTimestamp(block.timestamp);
-			const showTimestamp = tsLabel !== lastRenderedTimestamp;
 			const prefix =
-				(showTimestamp ? theme.fg("dim", `[${tsLabel}]`) + " " : "") +
-				(block.kind === "text"
+				block.kind === "text"
 					? theme.fg("accent", theme.bold("[reply]"))
-					: theme.fg("thinkingText", theme.bold("[think]")));
+					: theme.fg("thinkingText", theme.bold("[think]"));
 			this.contentContainer.addChild(new Text(prefix, 1, 0));
 
 			const hasVisibleContentAfter = i < visibleBlocks.length - 1;
@@ -133,8 +129,6 @@ export class AssistantMessageComponent extends Container {
 					this.contentContainer.addChild(new Spacer(1));
 				}
 			}
-
-			lastRenderedTimestamp = tsLabel;
 		}
 
 		// Check if aborted - show after partial content

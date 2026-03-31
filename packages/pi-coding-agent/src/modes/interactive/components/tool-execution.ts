@@ -19,7 +19,6 @@ import { getLanguageFromPath, highlightCode, theme } from "../theme/theme.js";
 import { shortenPath } from "../utils/shorten-path.js";
 import { renderDiff } from "./diff.js";
 import { keyHint } from "./keybinding-hints.js";
-import { formatActionTimestamp } from "./timestamp.js";
 // During partial write tool-call streaming, re-highlight the first N lines fully
 // to keep multiline tokenization mostly correct without re-highlighting the full file.
 const WRITE_PARTIAL_FULL_HIGHLIGHT_LINES = 50;
@@ -108,8 +107,6 @@ export class ToolExecutionComponent extends Container {
 	private writeHighlightCache?: WriteHighlightCache;
 	// When true, this component intentionally renders no lines
 	private hideComponent = false;
-	private readonly startedAt = Date.now();
-	private completedAt?: number;
 
 	constructor(
 		toolName: string,
@@ -312,9 +309,6 @@ export class ToolExecutionComponent extends Container {
 	): void {
 		this.result = result;
 		this.isPartial = isPartial;
-		if (!isPartial) {
-			this.completedAt = Date.now();
-		}
 		if (this.toolName === "write" && !isPartial) {
 			const rawPath = str(this.args?.file_path ?? this.args?.path);
 			const fileContent = str(this.args?.content);
@@ -543,14 +537,16 @@ export class ToolExecutionComponent extends Container {
 			const output = this.getBashOutput(command);
 
 			if (output) {
-				// Style each line for the output
-				const styledOutput = output
-					.split("\n")
-					.map((line) => theme.fg("toolOutput", line))
-					.join("\n");
-
-				// Show all lines when expanded
-				this.contentBox.addChild(new Text(`\n${styledOutput}`, 0, 0));
+				const outputPanel =
+					theme.fg("muted", "┌ output") +
+					"\n" +
+					output
+						.split("\n")
+						.map((line) => `${theme.fg("muted", "│")} ${theme.fg("toolOutput", line)}`)
+						.join("\n") +
+					"\n" +
+					theme.fg("muted", "└");
+				this.contentBox.addChild(new Text(`\n${outputPanel}`, 0, 0));
 			}
 
 			// Truncation warnings
@@ -945,8 +941,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private getActionPrefix(): string {
-		const ts = this.completedAt ?? this.startedAt;
-		return `${theme.fg("dim", `[${formatActionTimestamp(ts)}]`)} ${theme.fg("warning", theme.bold("[tool]"))} `;
+		return `${theme.fg("warning", theme.bold("[tool]"))} `;
 	}
 
 	private getBashStatusSuffix(): string {
