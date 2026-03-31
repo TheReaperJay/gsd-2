@@ -2476,7 +2476,7 @@ export class InteractiveMode {
 			const menu = new ToolMenuComponent(toolComponents, () => {
 				done();
 				this.ui.requestRender();
-			});
+			}, this.ui);
 			return { component: menu, focus: menu };
 		});
 	}

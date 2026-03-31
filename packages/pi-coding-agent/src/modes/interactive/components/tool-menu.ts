@@ -1,4 +1,4 @@
-import { Container, getEditorKeybindings, Spacer, Text, truncateToWidth } from "@gsd/pi-tui";
+import { Container, getEditorKeybindings, matchesKey, Spacer, Text, truncateToWidth, type TUI } from "@gsd/pi-tui";
 import { getSelectListTheme, theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyHint, rawKeyHint } from "./keybinding-hints.js";
@@ -11,34 +11,40 @@ function clip(text: string, width: number): string {
 export class ToolMenuComponent extends Container {
 	private readonly tools: ToolExecutionComponent[];
 	private readonly onClose: () => void;
+	private readonly ui: TUI;
 	private selectedIndex: number;
 
-	constructor(tools: ToolExecutionComponent[], onClose: () => void) {
+	constructor(tools: ToolExecutionComponent[], onClose: () => void, ui: TUI) {
 		super();
 		this.tools = tools;
 		this.onClose = onClose;
+		this.ui = ui;
 		this.selectedIndex = Math.max(0, tools.length - 1);
 	}
 
 	handleInput(keyData: string): void {
 		const kb = getEditorKeybindings();
-		if (kb.matches(keyData, "selectCancel") || kb.matches(keyData, "expandTools")) {
+		if (kb.matches(keyData, "selectCancel") || kb.matches(keyData, "expandTools") || matchesKey(keyData, "ctrl+o")) {
 			this.onClose();
+			this.ui.requestRender();
 			return;
 		}
 		if (this.tools.length === 0) return;
 		if (kb.matches(keyData, "selectUp") || keyData === "k") {
 			this.selectedIndex = this.selectedIndex === 0 ? this.tools.length - 1 : this.selectedIndex - 1;
+			this.ui.requestRender();
 			return;
 		}
 		if (kb.matches(keyData, "selectDown") || keyData === "j") {
 			this.selectedIndex = this.selectedIndex === this.tools.length - 1 ? 0 : this.selectedIndex + 1;
+			this.ui.requestRender();
 			return;
 		}
-		if (kb.matches(keyData, "selectConfirm")) {
+		if (kb.matches(keyData, "selectConfirm") || keyData === "\n" || keyData === "\r") {
 			const tool = this.tools[this.selectedIndex];
 			if (tool) {
 				tool.setExpanded(!tool.isExpanded());
+				this.ui.requestRender();
 			}
 		}
 	}
@@ -104,4 +110,3 @@ export class ToolMenuComponent extends Container {
 		return lines;
 	}
 }
-
