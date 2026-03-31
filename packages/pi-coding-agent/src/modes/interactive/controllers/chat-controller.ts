@@ -4,7 +4,7 @@ import type { InteractiveModeEvent, InteractiveModeStateHost } from "../interact
 import { AssistantMessageComponent } from "../components/assistant-message.js";
 import { appKey } from "../components/keybinding-hints.js";
 import { ToolExecutionComponent } from "../components/tool-execution.js";
-import { type TurnSummaryMetrics, TurnSummaryComponent } from "../components/turn-summary.js";
+import { type TurnSummaryComponent, type TurnSummaryMetrics } from "../components/turn-summary.js";
 import { theme } from "../theme/theme.js";
 
 function parseDiffLineCounts(diff: unknown): { added: number; removed: number } {
@@ -75,13 +75,8 @@ function applyUsageToSummary(
 }
 
 function pinSummaryToBottom(host: InteractiveModeStateHost & { streamingSummaryComponent?: TurnSummaryComponent }): void {
-	if (!host.streamingSummaryComponent) return;
-	try {
-		host.chatContainer.removeChild(host.streamingSummaryComponent);
-	} catch {
-		// no-op
-	}
-	host.chatContainer.addChild(host.streamingSummaryComponent);
+	// Summary row rendering is disabled in chat/status panes.
+	void host;
 }
 
 export async function handleAgentEvent(host: InteractiveModeStateHost & {
@@ -194,11 +189,8 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					linesRemoved: 0,
 					status: "running",
 				};
-				host.streamingSummaryComponent = new TurnSummaryComponent(host.ui, host.currentTurnMetrics);
 				host.chatContainer.addChild(host.streamingComponent);
-				host.chatContainer.addChild(host.streamingSummaryComponent);
 				host.streamingComponent.updateContent(host.streamingMessage);
-				host.setActiveExpandable(host.streamingSummaryComponent);
 				host.ui.requestRender();
 			}
 			break;
@@ -307,9 +299,6 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					}
 				}
 				pinSummaryToBottom(host);
-				if (host.streamingSummaryComponent) {
-					host.setActiveExpandable(host.streamingSummaryComponent);
-				}
 				host.streamingComponent = undefined;
 				host.streamingMessage = undefined;
 				host.streamingSummaryComponent = undefined;
@@ -373,14 +362,6 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				host.chatContainer.removeChild(host.streamingComponent);
 				host.streamingComponent = undefined;
 				host.streamingMessage = undefined;
-			}
-			if (host.streamingSummaryComponent && host.currentTurnMetrics) {
-				host.streamingSummaryComponent.updateMetrics({
-					...host.currentTurnMetrics,
-					endMs: Date.now(),
-					status: "aborted",
-				});
-				host.setActiveExpandable(host.streamingSummaryComponent);
 			}
 			host.streamingSummaryComponent = undefined;
 			host.currentTurnMetrics = undefined;
