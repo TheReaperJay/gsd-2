@@ -21,6 +21,7 @@ export interface InteractiveModeStateHost {
 	defaultWorkingMessage: string;
 	streamingComponent?: any;
 	streamingMessage?: any;
+	streamingSummaryComponent?: any;
 	retryEscapeHandler?: () => void;
 	retryLoader?: any;
 	autoCompactionLoader?: any;
@@ -31,7 +32,7 @@ export interface InteractiveModeStateHost {
 	extensionEditor?: any;
 	editorContainer: any;
 	keybindingsManager?: any;
+	setActiveExpandable: (component: unknown) => void;
 }
 
 export type InteractiveModeEvent = AgentSessionEvent;
-

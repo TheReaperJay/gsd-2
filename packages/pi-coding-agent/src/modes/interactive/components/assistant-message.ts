@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "@gsd/pi-ai";
 import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@gsd/pi-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.js";
-import { formatTimestamp, type TimestampFormat } from "./timestamp.js";
+import { formatActionTimestamp, formatTimestamp, type TimestampFormat } from "./timestamp.js";
 
 /**
  * Component that renders a complete assistant message
@@ -12,6 +12,7 @@ export class AssistantMessageComponent extends Container {
 	private markdownTheme: MarkdownTheme;
 	private lastMessage?: AssistantMessage;
 	private timestampFormat: TimestampFormat;
+	private contentTimestamps = new Map<number, number>();
 
 	constructor(
 		message?: AssistantMessage,
@@ -63,10 +64,28 @@ export class AssistantMessageComponent extends Container {
 		for (let i = 0; i < message.content.length; i++) {
 			const content = message.content[i];
 			if (content.type === "text" && content.text.trim()) {
+				if (!this.contentTimestamps.has(i)) {
+					this.contentTimestamps.set(i, Date.now());
+				}
+				const ts = this.contentTimestamps.get(i) ?? Date.now();
+				const prefix =
+					theme.fg("dim", `[${formatActionTimestamp(ts)}]`) + " " + theme.fg("accent", theme.bold("[reply]"));
+				this.contentContainer.addChild(new Text(prefix, 1, 0));
+
 				// Assistant text messages with no background - trim the text
 				// Set paddingY=0 to avoid extra spacing before tool executions
 				this.contentContainer.addChild(new Markdown(content.text.trim(), 1, 0, this.markdownTheme));
 			} else if (content.type === "thinking" && content.thinking.trim()) {
+				if (!this.contentTimestamps.has(i)) {
+					this.contentTimestamps.set(i, Date.now());
+				}
+				const ts = this.contentTimestamps.get(i) ?? Date.now();
+				const thinkPrefix =
+					theme.fg("dim", `[${formatActionTimestamp(ts)}]`) +
+					" " +
+					theme.fg("thinkingText", theme.bold("[think]"));
+				this.contentContainer.addChild(new Text(thinkPrefix, 1, 0));
+
 				// Add spacing only when another visible assistant content block follows.
 				// This avoids a superfluous blank line before separately-rendered tool execution blocks.
 				const hasVisibleContentAfter = message.content
@@ -75,7 +94,9 @@ export class AssistantMessageComponent extends Container {
 
 				if (this.hideThinkingBlock) {
 					// Show static "Thinking..." label when hidden
-					this.contentContainer.addChild(new Text(theme.italic(theme.fg("thinkingText", "Thinking...")), 1, 0));
+					this.contentContainer.addChild(
+						new Text(theme.italic(theme.fg("thinkingText", "Thinking...")), 1, 0),
+					);
 					if (hasVisibleContentAfter) {
 						this.contentContainer.addChild(new Spacer(1));
 					}

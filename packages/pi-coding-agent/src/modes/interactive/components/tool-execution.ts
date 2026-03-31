@@ -20,6 +20,7 @@ import { getLanguageFromPath, highlightCode, theme } from "../theme/theme.js";
 import { shortenPath } from "../utils/shorten-path.js";
 import { renderDiff } from "./diff.js";
 import { keyHint } from "./keybinding-hints.js";
+import { formatActionTimestamp } from "./timestamp.js";
 import { truncateToVisualLines } from "./visual-truncate.js";
 
 // Preview line limit for bash when not expanded
@@ -92,6 +93,8 @@ export class ToolExecutionComponent extends Container {
 	private writeHighlightCache?: WriteHighlightCache;
 	// When true, this component intentionally renders no lines
 	private hideComponent = false;
+	private readonly startedAt = Date.now();
+	private completedAt?: number;
 
 	constructor(
 		toolName: string,
@@ -295,6 +298,9 @@ export class ToolExecutionComponent extends Container {
 	): void {
 		this.result = result;
 		this.isPartial = isPartial;
+		if (!isPartial) {
+			this.completedAt = Date.now();
+		}
 		if (this.toolName === "write" && !isPartial) {
 			const rawPath = str(this.args?.file_path ?? this.args?.path);
 			const fileContent = str(this.args?.content);
@@ -341,6 +347,10 @@ export class ToolExecutionComponent extends Container {
 	setExpanded(expanded: boolean): void {
 		this.expanded = expanded;
 		this.updateDisplay();
+	}
+
+	isExpanded(): boolean {
+		return this.expanded;
 	}
 
 	setShowImages(show: boolean): void {
@@ -504,8 +514,9 @@ export class ToolExecutionComponent extends Container {
 		const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
 		const commandDisplay =
 			command === null ? theme.fg("error", "[invalid arg]") : command ? command : theme.fg("toolOutput", "...");
+		const prefix = this.getActionPrefix();
 		this.contentBox.addChild(
-			new Text(theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix, 0, 0),
+			new Text(prefix + theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix, 0, 0),
 		);
 
 		if (this.result) {
@@ -923,6 +934,20 @@ export class ToolExecutionComponent extends Container {
 			}
 		}
 
-		return text;
+		return this.prependActionPrefix(text);
+	}
+
+	private getActionPrefix(): string {
+		const ts = this.completedAt ?? this.startedAt;
+		return `${theme.fg("dim", `[${formatActionTimestamp(ts)}]`)} ${theme.fg("warning", theme.bold("[tool]"))} `;
+	}
+
+	private prependActionPrefix(text: string): string {
+		const prefix = this.getActionPrefix();
+		const firstNewline = text.indexOf("\n");
+		if (firstNewline === -1) {
+			return prefix + text;
+		}
+		return prefix + text.slice(0, firstNewline) + text.slice(firstNewline);
 	}
 }

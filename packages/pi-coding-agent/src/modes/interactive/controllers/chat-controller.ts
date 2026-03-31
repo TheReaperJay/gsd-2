@@ -1,10 +1,88 @@
 import { Loader, Spacer, Text } from "@gsd/pi-tui";
 
 import type { InteractiveModeEvent, InteractiveModeStateHost } from "../interactive-mode-state.js";
-import { theme } from "../theme/theme.js";
 import { AssistantMessageComponent } from "../components/assistant-message.js";
-import { ToolExecutionComponent } from "../components/tool-execution.js";
 import { appKey } from "../components/keybinding-hints.js";
+import { ToolExecutionComponent } from "../components/tool-execution.js";
+import { type TurnSummaryMetrics, TurnSummaryComponent } from "../components/turn-summary.js";
+import { theme } from "../theme/theme.js";
+
+function parseDiffLineCounts(diff: unknown): { added: number; removed: number } {
+	if (typeof diff !== "string" || diff.length === 0) {
+		return { added: 0, removed: 0 };
+	}
+	let added = 0;
+	let removed = 0;
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+")) {
+			added += 1;
+		} else if (line.startsWith("-")) {
+			removed += 1;
+		}
+	}
+	return { added, removed };
+}
+
+function findThinkingOutputTokens(usage: unknown): number | undefined {
+	if (!usage || typeof usage !== "object") return undefined;
+	const u = usage as Record<string, unknown>;
+	const candidates = [
+		u.reasoningOutputTokens,
+		u.thinkingOutputTokens,
+		u.reasoning_tokens,
+		u.thinking_tokens,
+		u.outputReasoningTokens,
+		u.output_thinking_tokens,
+	];
+	for (const value of candidates) {
+		if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+			return value;
+		}
+	}
+	return undefined;
+}
+
+function updateSummaryMetrics(
+	host: InteractiveModeStateHost & {
+		streamingSummaryComponent?: TurnSummaryComponent;
+		currentTurnMetrics?: TurnSummaryMetrics;
+	},
+	update: Partial<TurnSummaryMetrics>,
+): void {
+	if (!host.currentTurnMetrics) return;
+	host.currentTurnMetrics = { ...host.currentTurnMetrics, ...update };
+	host.streamingSummaryComponent?.updateMetrics(host.currentTurnMetrics);
+}
+
+function applyUsageToSummary(
+	host: InteractiveModeStateHost & {
+		currentTurnMetrics?: TurnSummaryMetrics;
+		streamingSummaryComponent?: TurnSummaryComponent;
+	},
+	usage: unknown,
+): void {
+	if (!host.currentTurnMetrics || !usage || typeof usage !== "object") return;
+	const usageObj = usage as Record<string, unknown>;
+	const inputTokens = typeof usageObj.input === "number" ? usageObj.input : undefined;
+	const outputTokens = typeof usageObj.output === "number" ? usageObj.output : undefined;
+	const thinkingOutputTokens = findThinkingOutputTokens(usageObj);
+	const normalOutputTokens =
+		typeof outputTokens === "number" && typeof thinkingOutputTokens === "number"
+			? Math.max(0, outputTokens - thinkingOutputTokens)
+			: outputTokens;
+
+	updateSummaryMetrics(host, { inputTokens, outputTokens, thinkingOutputTokens, normalOutputTokens });
+}
+
+function pinSummaryToBottom(host: InteractiveModeStateHost & { streamingSummaryComponent?: TurnSummaryComponent }): void {
+	if (!host.streamingSummaryComponent) return;
+	try {
+		host.chatContainer.removeChild(host.streamingSummaryComponent);
+	} catch {
+		// no-op
+	}
+	host.chatContainer.addChild(host.streamingSummaryComponent);
+}
 
 export async function handleAgentEvent(host: InteractiveModeStateHost & {
 	init: () => Promise<void>;
@@ -21,6 +99,8 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 	updateTerminalTitle: () => void;
 	updateEditorBorderColor: () => void;
 	pendingMessagesContainer: { clear: () => void };
+	streamingSummaryComponent?: TurnSummaryComponent;
+	currentTurnMetrics?: TurnSummaryMetrics;
 }, event: InteractiveModeEvent): Promise<void> {
 	if (!host.isInitialized) {
 		await host.init();
@@ -36,6 +116,9 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				case "fork":
 					host.streamingComponent = undefined;
 					host.streamingMessage = undefined;
+					host.streamingSummaryComponent?.dispose?.();
+					host.streamingSummaryComponent = undefined;
+					host.currentTurnMetrics = undefined;
 					host.pendingTools.clear();
 					host.pendingMessagesContainer.clear();
 					host.compactionQueuedMessages = [];
@@ -58,6 +141,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					host.ui.requestRender();
 					return;
 			}
+
 		case "agent_start":
 			if (host.retryEscapeHandler) {
 				host.defaultEditor.onEscape = host.retryEscapeHandler;
@@ -103,8 +187,18 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					host.settingsManager.getTimestampFormat(),
 				);
 				host.streamingMessage = event.message;
+				host.currentTurnMetrics = {
+					startMs: Date.now(),
+					toolUses: 0,
+					linesAdded: 0,
+					linesRemoved: 0,
+					status: "running",
+				};
+				host.streamingSummaryComponent = new TurnSummaryComponent(host.ui, host.currentTurnMetrics);
 				host.chatContainer.addChild(host.streamingComponent);
+				host.chatContainer.addChild(host.streamingSummaryComponent);
 				host.streamingComponent.updateContent(host.streamingMessage);
+				host.setActiveExpandable(host.streamingSummaryComponent);
 				host.ui.requestRender();
 			}
 			break;
@@ -123,9 +217,12 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 								host.getRegisteredToolDefinition(content.name),
 								host.ui,
 							);
-							component.setExpanded(host.toolOutputExpanded);
-							host.chatContainer.addChild(component);
-							host.pendingTools.set(content.id, component);
+								component.setExpanded(host.toolOutputExpanded);
+								host.chatContainer.addChild(component);
+								host.pendingTools.set(content.id, component);
+								host.setActiveExpandable(component);
+								updateSummaryMetrics(host, { toolUses: (host.currentTurnMetrics?.toolUses ?? 0) + 1 });
+								pinSummaryToBottom(host);
 						} else {
 							host.pendingTools.get(content.id)?.updateArgs(content.arguments);
 						}
@@ -138,9 +235,12 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 								undefined,
 								host.ui,
 							);
-							component.setExpanded(host.toolOutputExpanded);
-							host.chatContainer.addChild(component);
-							host.pendingTools.set(content.id, component);
+								component.setExpanded(host.toolOutputExpanded);
+								host.chatContainer.addChild(component);
+								host.pendingTools.set(content.id, component);
+								host.setActiveExpandable(component);
+								updateSummaryMetrics(host, { toolUses: (host.currentTurnMetrics?.toolUses ?? 0) + 1 });
+								pinSummaryToBottom(host);
 						}
 					} else if (content.type === "webSearchResult") {
 						const component = host.pendingTools.get(content.toolUseId);
@@ -152,7 +252,10 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 								});
 							} else {
 								const searchContent = content.content;
-								const isError = searchContent && typeof searchContent === "object" && "type" in (searchContent as any) && (searchContent as any).type === "web_search_tool_result_error";
+								const isError = searchContent &&
+									typeof searchContent === "object" &&
+									"type" in (searchContent as any) &&
+									(searchContent as any).type === "web_search_tool_result_error";
 								component.updateResult({
 									content: [{ type: "text", text: host.formatWebSearchResult(searchContent) }],
 									isError: !!isError,
@@ -161,6 +264,8 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 						}
 					}
 				}
+				applyUsageToSummary(host, host.streamingMessage.usage);
+				pinSummaryToBottom(host);
 				host.ui.requestRender();
 			}
 			break;
@@ -178,6 +283,16 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					host.streamingMessage.errorMessage = errorMessage;
 				}
 				host.streamingComponent.updateContent(host.streamingMessage);
+				applyUsageToSummary(host, host.streamingMessage.usage);
+				updateSummaryMetrics(host, {
+					endMs: Date.now(),
+					status:
+						host.streamingMessage.stopReason === "error"
+							? "error"
+							: host.streamingMessage.stopReason === "aborted"
+								? "aborted"
+								: "done",
+				});
 				if (host.streamingMessage.stopReason === "aborted" || host.streamingMessage.stopReason === "error") {
 					if (!errorMessage) {
 						errorMessage = host.streamingMessage.errorMessage || "Error";
@@ -191,8 +306,14 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 						component.setArgsComplete();
 					}
 				}
+				pinSummaryToBottom(host);
+				if (host.streamingSummaryComponent) {
+					host.setActiveExpandable(host.streamingSummaryComponent);
+				}
 				host.streamingComponent = undefined;
 				host.streamingMessage = undefined;
+				host.streamingSummaryComponent = undefined;
+				host.currentTurnMetrics = undefined;
 				host.footer.invalidate();
 			}
 			host.ui.requestRender();
@@ -210,6 +331,9 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				component.setExpanded(host.toolOutputExpanded);
 				host.chatContainer.addChild(component);
 				host.pendingTools.set(event.toolCallId, component);
+				host.setActiveExpandable(component);
+				updateSummaryMetrics(host, { toolUses: (host.currentTurnMetrics?.toolUses ?? 0) + 1 });
+				pinSummaryToBottom(host);
 				host.ui.requestRender();
 			}
 			break;
@@ -227,7 +351,13 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			const component = host.pendingTools.get(event.toolCallId);
 			if (component) {
 				component.updateResult({ ...event.result, isError: event.isError });
+				const diffCounts = parseDiffLineCounts((event.result as any)?.details?.diff);
+				updateSummaryMetrics(host, {
+					linesAdded: (host.currentTurnMetrics?.linesAdded ?? 0) + diffCounts.added,
+					linesRemoved: (host.currentTurnMetrics?.linesRemoved ?? 0) + diffCounts.removed,
+				});
 				host.pendingTools.delete(event.toolCallId);
+				pinSummaryToBottom(host);
 				host.ui.requestRender();
 			}
 			break;
@@ -244,6 +374,16 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 				host.streamingComponent = undefined;
 				host.streamingMessage = undefined;
 			}
+			if (host.streamingSummaryComponent && host.currentTurnMetrics) {
+				host.streamingSummaryComponent.updateMetrics({
+					...host.currentTurnMetrics,
+					endMs: Date.now(),
+					status: "aborted",
+				});
+				host.setActiveExpandable(host.streamingSummaryComponent);
+			}
+			host.streamingSummaryComponent = undefined;
+			host.currentTurnMetrics = undefined;
 			host.pendingTools.clear();
 			await host.checkShutdownRequested();
 			host.ui.requestRender();

@@ -22,6 +22,10 @@ function isoTime(d: Date): string {
 	return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function isoTimeWithSeconds(d: Date): string {
+	return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
 function usDate(d: Date): string {
 	return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}-${d.getFullYear()}`;
 }
@@ -45,4 +49,11 @@ export function formatTimestamp(timestamp: number, format: TimestampFormat = "da
 		case "date-time-us":
 			return `${usDate(d)} ${usTime(d)}`;
 	}
+}
+
+/**
+ * Format compact action timestamp used for per-step timeline rows.
+ */
+export function formatActionTimestamp(timestamp: number): string {
+	return isoTimeWithSeconds(new Date(timestamp));
 }

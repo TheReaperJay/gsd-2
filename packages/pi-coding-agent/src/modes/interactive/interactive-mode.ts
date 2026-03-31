@@ -118,6 +118,7 @@ import {
 /** Interface for components that can be expanded/collapsed */
 interface Expandable {
 	setExpanded(expanded: boolean): void;
+	isExpanded?: () => boolean;
 }
 
 function isExpandable(obj: unknown): obj is Expandable {
@@ -192,6 +193,7 @@ export class InteractiveMode {
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
+	private activeExpandable: Expandable | undefined = undefined;
 
 	// Thinking block visibility state
 	private hideThinkingBlock = false;
@@ -424,7 +426,7 @@ export class InteractiveMode {
 				hint("cycleThinkingLevel", "to cycle thinking level"),
 				rawKeyHint(`${appKey(kb, "cycleModelForward")}/${appKey(kb, "cycleModelBackward")}`, "to cycle models"),
 				hint("selectModel", "to select model"),
-				hint("expandTools", "to expand tools"),
+				hint("expandTools", "to expand active item"),
 				hint("toggleThinking", "to expand thinking"),
 				hint("externalEditor", "for external editor"),
 				rawKeyHint("/", "for commands"),
@@ -2146,6 +2148,7 @@ export class InteractiveMode {
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
 		this.pendingTools.clear();
+		this.activeExpandable = undefined;
 
 		if (options.updateFooter) {
 			this.footer.invalidate();
@@ -2168,6 +2171,7 @@ export class InteractiveMode {
 						);
 						component.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(component);
+						this.setActiveExpandable(component);
 
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
 							let errorMessage: string;
@@ -2195,13 +2199,17 @@ export class InteractiveMode {
 						);
 						component.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(component);
+						this.setActiveExpandable(component);
 						// Find matching webSearchResult in this message's content
 						const resultBlock = message.content.find(
 							(c) => c.type === "webSearchResult" && c.toolUseId === content.id,
 						);
 						if (resultBlock && resultBlock.type === "webSearchResult") {
 							const searchContent = resultBlock.content;
-							const isError = searchContent && typeof searchContent === "object" && "type" in (searchContent as any) && (searchContent as any).type === "web_search_tool_result_error";
+							const isError = searchContent &&
+								typeof searchContent === "object" &&
+								"type" in (searchContent as any) &&
+								(searchContent as any).type === "web_search_tool_result_error";
 							const resultText = this.formatWebSearchResult(searchContent);
 							component.updateResult({
 								content: [{ type: "text", text: resultText }],
@@ -2442,17 +2450,32 @@ export class InteractiveMode {
 	}
 
 	private toggleToolOutputExpansion(): void {
-		this.setToolsExpanded(!this.toolOutputExpanded);
+		const target = (this.activeExpandable && isExpandable(this.activeExpandable))
+			? this.activeExpandable
+			: this.findLastExpandable();
+		if (!target) {
+			return;
+		}
+		const currentlyExpanded = target.isExpanded ? target.isExpanded() : false;
+		target.setExpanded(!currentlyExpanded);
+		this.toolOutputExpanded = !currentlyExpanded;
+		this.ui.requestRender();
 	}
 
-	private setToolsExpanded(expanded: boolean): void {
-		this.toolOutputExpanded = expanded;
-		for (const child of this.chatContainer.children) {
+	private findLastExpandable(): Expandable | undefined {
+		for (let i = this.chatContainer.children.length - 1; i >= 0; i--) {
+			const child = this.chatContainer.children[i];
 			if (isExpandable(child)) {
-				child.setExpanded(expanded);
+				return child;
 			}
 		}
-		this.ui.requestRender();
+		return undefined;
+	}
+
+	private setActiveExpandable(component: unknown): void {
+		if (isExpandable(component)) {
+			this.activeExpandable = component;
+		}
 	}
 
 	private toggleThinkingBlockVisibility(): void {
