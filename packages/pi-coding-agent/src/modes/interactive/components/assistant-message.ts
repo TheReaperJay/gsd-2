@@ -3,6 +3,12 @@ import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@gsd/pi-t
 import { getMarkdownTheme, theme } from "../theme/theme.js";
 import { formatActionTimestamp, formatTimestamp, type TimestampFormat } from "./timestamp.js";
 
+type VisibleAssistantBlock = {
+	kind: "text" | "thinking";
+	text: string;
+	timestamp: number;
+};
+
 /**
  * Component that renders a complete assistant message
  */
@@ -52,15 +58,7 @@ export class AssistantMessageComponent extends Container {
 		// Clear content container
 		this.contentContainer.clear();
 
-		const hasVisibleContent = message.content.some(
-			(c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()),
-		);
-
-		if (hasVisibleContent) {
-			this.contentContainer.addChild(new Spacer(1));
-		}
-
-		// Render content in order
+		const visibleBlocks: VisibleAssistantBlock[] = [];
 		for (let i = 0; i < message.content.length; i++) {
 			const content = message.content[i];
 			if (content.type === "text" && content.text.trim()) {
@@ -68,51 +66,75 @@ export class AssistantMessageComponent extends Container {
 					this.contentTimestamps.set(i, Date.now());
 				}
 				const ts = this.contentTimestamps.get(i) ?? Date.now();
-				const prefix =
-					theme.fg("dim", `[${formatActionTimestamp(ts)}]`) + " " + theme.fg("accent", theme.bold("[reply]"));
-				this.contentContainer.addChild(new Text(prefix, 1, 0));
-
-				// Assistant text messages with no background - trim the text
-				// Set paddingY=0 to avoid extra spacing before tool executions
-				this.contentContainer.addChild(new Markdown(content.text.trim(), 1, 0, this.markdownTheme));
+				const merged = visibleBlocks[visibleBlocks.length - 1];
+				const tsKey = formatActionTimestamp(ts);
+				const mergedTsKey = merged ? formatActionTimestamp(merged.timestamp) : undefined;
+				if (merged && merged.kind === "text" && mergedTsKey === tsKey) {
+					merged.text += `\n\n${content.text.trim()}`;
+				} else {
+					visibleBlocks.push({ kind: "text", text: content.text.trim(), timestamp: ts });
+				}
 			} else if (content.type === "thinking" && content.thinking.trim()) {
 				if (!this.contentTimestamps.has(i)) {
 					this.contentTimestamps.set(i, Date.now());
 				}
 				const ts = this.contentTimestamps.get(i) ?? Date.now();
-				const thinkPrefix =
-					theme.fg("dim", `[${formatActionTimestamp(ts)}]`) +
-					" " +
-					theme.fg("thinkingText", theme.bold("[think]"));
-				this.contentContainer.addChild(new Text(thinkPrefix, 1, 0));
-
-				// Add spacing only when another visible assistant content block follows.
-				// This avoids a superfluous blank line before separately-rendered tool execution blocks.
-				const hasVisibleContentAfter = message.content
-					.slice(i + 1)
-					.some((c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()));
-
-				if (this.hideThinkingBlock) {
-					// Show static "Thinking..." label when hidden
-					this.contentContainer.addChild(
-						new Text(theme.italic(theme.fg("thinkingText", "Thinking...")), 1, 0),
-					);
-					if (hasVisibleContentAfter) {
-						this.contentContainer.addChild(new Spacer(1));
-					}
+				const merged = visibleBlocks[visibleBlocks.length - 1];
+				const tsKey = formatActionTimestamp(ts);
+				const mergedTsKey = merged ? formatActionTimestamp(merged.timestamp) : undefined;
+				if (merged && merged.kind === "thinking" && mergedTsKey === tsKey) {
+					merged.text += `\n\n${content.thinking.trim()}`;
 				} else {
-					// Thinking traces in thinkingText color, italic
-					this.contentContainer.addChild(
-						new Markdown(content.thinking.trim(), 1, 0, this.markdownTheme, {
-							color: (text: string) => theme.fg("thinkingText", text),
-							italic: true,
-						}),
-					);
-					if (hasVisibleContentAfter) {
-						this.contentContainer.addChild(new Spacer(1));
-					}
+					visibleBlocks.push({ kind: "thinking", text: content.thinking.trim(), timestamp: ts });
 				}
 			}
+		}
+
+		const hasVisibleContent = visibleBlocks.length > 0;
+
+		if (hasVisibleContent) {
+			this.contentContainer.addChild(new Spacer(1));
+		}
+
+		// Render content in order, suppressing repeated timestamp labels for the same second.
+		let lastRenderedTimestamp: string | undefined;
+		for (let i = 0; i < visibleBlocks.length; i++) {
+			const block = visibleBlocks[i];
+			const tsLabel = formatActionTimestamp(block.timestamp);
+			const showTimestamp = tsLabel !== lastRenderedTimestamp;
+			const prefix =
+				(showTimestamp ? theme.fg("dim", `[${tsLabel}]`) + " " : "") +
+				(block.kind === "text"
+					? theme.fg("accent", theme.bold("[reply]"))
+					: theme.fg("thinkingText", theme.bold("[think]")));
+			this.contentContainer.addChild(new Text(prefix, 1, 0));
+
+			const hasVisibleContentAfter = i < visibleBlocks.length - 1;
+
+			if (block.kind === "text") {
+				// Assistant text messages with no background - trim the text
+				// Set paddingY=0 to avoid extra spacing before tool executions
+				this.contentContainer.addChild(new Markdown(block.text.trim(), 1, 0, this.markdownTheme));
+			} else if (this.hideThinkingBlock) {
+				// Show static "Thinking..." label when hidden
+				this.contentContainer.addChild(new Text(theme.italic(theme.fg("thinkingText", "Thinking...")), 1, 0));
+				if (hasVisibleContentAfter) {
+					this.contentContainer.addChild(new Spacer(1));
+				}
+			} else {
+				// Thinking traces in thinkingText color, italic
+				this.contentContainer.addChild(
+					new Markdown(block.text.trim(), 1, 0, this.markdownTheme, {
+						color: (text: string) => theme.fg("thinkingText", text),
+						italic: true,
+					}),
+				);
+				if (hasVisibleContentAfter) {
+					this.contentContainer.addChild(new Spacer(1));
+				}
+			}
+
+			lastRenderedTimestamp = tsLabel;
 		}
 
 		// Check if aborted - show after partial content

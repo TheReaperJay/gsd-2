@@ -426,7 +426,7 @@ export class InteractiveMode {
 				hint("cycleThinkingLevel", "to cycle thinking level"),
 				rawKeyHint(`${appKey(kb, "cycleModelForward")}/${appKey(kb, "cycleModelBackward")}`, "to cycle models"),
 				hint("selectModel", "to select model"),
-				hint("expandTools", "to expand active item"),
+				hint("expandTools", "to expand/collapse all tools"),
 				hint("toggleThinking", "to expand thinking"),
 				hint("externalEditor", "for external editor"),
 				rawKeyHint("/", "for commands"),
@@ -2450,15 +2450,17 @@ export class InteractiveMode {
 	}
 
 	private toggleToolOutputExpansion(): void {
-		const target = (this.activeExpandable && isExpandable(this.activeExpandable))
-			? this.activeExpandable
-			: this.findLastExpandable();
-		if (!target) {
+		const toolComponents = this.chatContainer.children.filter(
+			(child): child is ToolExecutionComponent => child instanceof ToolExecutionComponent,
+		);
+		if (toolComponents.length === 0) {
 			return;
 		}
-		const currentlyExpanded = target.isExpanded ? target.isExpanded() : false;
-		target.setExpanded(!currentlyExpanded);
-		this.toolOutputExpanded = !currentlyExpanded;
+		const nextExpanded = !this.toolOutputExpanded;
+		for (const component of toolComponents) {
+			component.setExpanded(nextExpanded);
+		}
+		this.toolOutputExpanded = nextExpanded;
 		this.ui.requestRender();
 	}
 
