@@ -168,10 +168,10 @@ export class BashExecutionComponent extends Container {
 			// Show how many lines are hidden (collapsed preview)
 			if (hiddenLineCount > 0) {
 				if (this.expanded) {
-					statusParts.push(`(${keyHint("expandTools", "to collapse")})`);
+					statusParts.push(`(${keyHint("expandTools", "tool menu")})`);
 				} else {
 					statusParts.push(
-						`${theme.fg("muted", `... ${hiddenLineCount} more lines`)} (${keyHint("expandTools", "to expand")})`,
+						`${theme.fg("muted", `... ${hiddenLineCount} more lines`)} (${keyHint("expandTools", "tool menu")})`,
 					);
 				}
 			}

@@ -2473,7 +2473,9 @@ export class InteractiveMode {
 		}
 
 		this.showSelector((done) => {
+			this.ui.terminal.write("\x1b[?1000h\x1b[?1006h");
 			const menu = new ToolMenuComponent(toolComponents, () => {
+				this.ui.terminal.write("\x1b[?1000l\x1b[?1006l");
 				done();
 				this.ui.requestRender();
 			}, this.ui);

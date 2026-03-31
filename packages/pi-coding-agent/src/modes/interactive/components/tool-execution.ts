@@ -389,6 +389,15 @@ export class ToolExecutionComponent extends Container {
 		};
 	}
 
+	getInspectorOutputLines(maxLines = 10000): string[] {
+		const outputText =
+			this.toolName === "bash" ? this.getBashOutput(str(this.args?.command)) : this.getTextOutput().trim();
+		if (!outputText) return [];
+		const lines = outputText.split("\n");
+		if (lines.length <= maxLines) return lines;
+		return [...lines.slice(0, maxLines), `... (${lines.length - maxLines} more lines)`];
+	}
+
 	setShowImages(show: boolean): void {
 		this.showImages = show;
 		this.updateDisplay();
@@ -601,7 +610,7 @@ export class ToolExecutionComponent extends Container {
 			const output = this.getBashOutput(command);
 			if (output) {
 				const lineCount = output.split("\n").length;
-				const hint = theme.fg("muted", ` (${lineCount} lines hidden, ${keyHint("expandTools", "to expand")})`);
+				const hint = theme.fg("muted", ` (${lineCount} lines hidden, ${keyHint("expandTools", "tool menu")})`);
 				this.contentBox.addChild(new Text(hint, 0, 0));
 			}
 		}
@@ -670,7 +679,7 @@ export class ToolExecutionComponent extends Container {
 						.map((line: string) => (lang ? replaceTabs(line) : theme.fg("toolOutput", replaceTabs(line))))
 						.join("\n");
 				if (remaining > 0) {
-					text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+					text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "tool menu")})`;
 				}
 
 				const truncation = this.result.details?.truncation;
@@ -747,7 +756,7 @@ export class ToolExecutionComponent extends Container {
 				if (remaining > 0) {
 					text +=
 						theme.fg("muted", `\n... (${remaining} more lines, ${totalLines} total,`) +
-						` ${keyHint("expandTools", "to expand")})`;
+						` ${keyHint("expandTools", "tool menu")})`;
 				}
 			}
 
@@ -814,7 +823,7 @@ export class ToolExecutionComponent extends Container {
 
 					text += `\n\n${displayLines.map((line: string) => theme.fg("toolOutput", line)).join("\n")}`;
 					if (remaining > 0) {
-						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "tool menu")})`;
 					}
 				}
 
@@ -856,7 +865,7 @@ export class ToolExecutionComponent extends Container {
 
 					text += `\n\n${displayLines.map((line: string) => theme.fg("toolOutput", line)).join("\n")}`;
 					if (remaining > 0) {
-						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "tool menu")})`;
 					}
 				}
 
@@ -902,7 +911,7 @@ export class ToolExecutionComponent extends Container {
 
 					text += `\n\n${displayLines.map((line: string) => theme.fg("toolOutput", line)).join("\n")}`;
 					if (remaining > 0) {
-						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "tool menu")})`;
 					}
 				}
 
@@ -939,7 +948,7 @@ export class ToolExecutionComponent extends Container {
 
 					text += `\n\n${displayLines.map((line: string) => theme.fg("toolOutput", line)).join("\n")}`;
 					if (remaining > 0) {
-						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "to expand")})`;
+						text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("expandTools", "tool menu")})`;
 					}
 				}
 			}
